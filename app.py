@@ -170,31 +170,57 @@ def celebrate_entry_saved() -> None:
 def bootstrap() -> tuple[bool, str]:
     """
     Initialize storage. Returns (ok, error_message).
-    Never crashes the page on bad Supabase secrets — surfaces a message instead.
+    Runs the Supabase health check + seed only once per browser session
+    so later clicks/reruns stay fast.
     """
+    if st.session_state.get("_db_bootstrapped_ok"):
+        return True, ""
+    if st.session_state.get("_db_bootstrapped_err"):
+        return False, st.session_state["_db_bootstrapped_err"]
+
     try:
         if db.using_supabase():
             ok, message = db.check_supabase()
             if not ok:
+                st.session_state["_db_bootstrapped_err"] = message
                 return False, message
         db.init_db()
         db.seed_defaults()
+        st.session_state["_db_bootstrapped_ok"] = True
+        st.session_state.pop("_db_bootstrapped_err", None)
         return True, ""
     except Exception as exc:
-        return (
-            False,
+        message = (
             f"Database startup failed: {exc}\n\n"
             "If you just added Supabase secrets, confirm the URL and "
-            "**service_role** key, and that you ran `supabase_schema.sql`.",
+            "**service_role** key, and that you ran `supabase_schema.sql`."
         )
+        st.session_state["_db_bootstrapped_err"] = message
+        return False, message
+
+
+@st.cache_data(ttl=45, show_spinner=False)
+def _cached_workers(active_only: bool) -> list[dict]:
+    """Short cache — avoids refetching crew on every widget interaction."""
+    return db.list_workers(active_only=active_only)
+
+
+@st.cache_data(ttl=45, show_spinner=False)
+def _cached_projects(active_only: bool) -> list[dict]:
+    return db.list_projects(active_only=active_only)
+
+
+def _clear_crew_cache() -> None:
+    _cached_workers.clear()
+    _cached_projects.clear()
 
 
 def _worker_options(active_only: bool = True) -> dict[str, int]:
-    return {w["name"]: w["id"] for w in db.list_workers(active_only=active_only)}
+    return {w["name"]: w["id"] for w in _cached_workers(active_only=active_only)}
 
 
 def _project_options(active_only: bool = True) -> dict[str, int]:
-    return {p["name"]: p["id"] for p in db.list_projects(active_only=active_only)}
+    return {p["name"]: p["id"] for p in _cached_projects(active_only=active_only)}
 
 
 def _id_to_name(options: dict[str, int], target_id: int) -> str | None:
@@ -608,21 +634,24 @@ def page_crew() -> None:
             if st.form_submit_button("Add worker", use_container_width=True):
                 try:
                     db.add_worker(name)
+                    _clear_crew_cache()
                     st.success(f"Added worker: {name.strip()}")
                     st.rerun()
                 except Exception as exc:
                     st.error(str(exc))
 
-        for w in db.list_workers(active_only=False):
+        for w in _cached_workers(active_only=False):
             cols = st.columns([3, 1, 1])
             cols[0].write(w["name"] + ("" if w["active"] else " _(inactive)_"))
             if w["active"]:
                 if cols[1].button("Deactivate", key=f"w_off_{w['id']}"):
                     db.set_worker_active(w["id"], False)
+                    _clear_crew_cache()
                     st.rerun()
             else:
                 if cols[2].button("Activate", key=f"w_on_{w['id']}"):
                     db.set_worker_active(w["id"], True)
+                    _clear_crew_cache()
                     st.rerun()
 
     with right:
@@ -632,21 +661,24 @@ def page_crew() -> None:
             if st.form_submit_button("Add project", use_container_width=True):
                 try:
                     db.add_project(name)
+                    _clear_crew_cache()
                     st.success(f"Added project: {name.strip()}")
                     st.rerun()
                 except Exception as exc:
                     st.error(str(exc))
 
-        for p in db.list_projects(active_only=False):
+        for p in _cached_projects(active_only=False):
             cols = st.columns([3, 1, 1])
             cols[0].write(p["name"] + ("" if p["active"] else " _(inactive)_"))
             if p["active"]:
                 if cols[1].button("Deactivate", key=f"p_off_{p['id']}"):
                     db.set_project_active(p["id"], False)
+                    _clear_crew_cache()
                     st.rerun()
             else:
                 if cols[2].button("Activate", key=f"p_on_{p['id']}"):
                     db.set_project_active(p["id"], True)
+                    _clear_crew_cache()
                     st.rerun()
 
 

@@ -152,7 +152,7 @@ def reset_supabase_client() -> None:
 def check_supabase() -> tuple[bool, str]:
     """
     Test Supabase connectivity and that required tables exist.
-    Returns (ok, message).
+    Returns (ok, message). Reuses the shared client (no forced reconnect).
     """
     cfg = _supabase_config()
     if not cfg:
@@ -173,12 +173,12 @@ def check_supabase() -> tuple[bool, str]:
         return False, "Supabase is not configured in secrets."
 
     try:
-        reset_supabase_client()
         client = _sb()
         # Lightweight probe — fails clearly if table missing or key wrong
         client.table("workers").select("id").limit(1).execute()
         return True, "Connected to Supabase."
     except Exception as exc:
+        reset_supabase_client()
         msg = str(exc)
         hint = (
             "Check: (1) Project URL is correct, "
@@ -260,17 +260,25 @@ def init_db() -> None:
         conn.executescript(SCHEMA)
 
 
+def _table_is_empty(table: str) -> bool:
+    """Cheap emptiness check (1 row max) — avoids downloading full tables on every boot."""
+    if using_supabase():
+        resp = _sb().table(table).select("id").limit(1).execute()
+        return not bool(resp.data)
+    with get_conn() as conn:
+        row = conn.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone()
+        return row is None
+
+
 def seed_defaults() -> None:
-    """Add starter workers/projects if tables are empty."""
-    workers = list_workers(active_only=False)
-    projects = list_projects(active_only=False)
-    if not workers:
+    """Add starter workers/projects if tables are empty (fast no-op when data exists)."""
+    if _table_is_empty("workers"):
         for name in ("Alex Rivera", "Jordan Lee", "Sam Patel"):
             try:
                 add_worker(name)
             except Exception:
                 pass
-    if not projects:
+    if _table_is_empty("projects"):
         for name in ("Main Site A", "Warehouse Renovation", "Road Extension"):
             try:
                 add_project(name)
