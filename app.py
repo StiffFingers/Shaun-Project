@@ -11,7 +11,10 @@ import auth
 import db
 from export import build_excel
 
-LOGO_PATH = Path(__file__).parent / "assets" / "in-spec-logo.png"
+ASSETS_DIR = Path(__file__).parent / "assets"
+LOGO_PATH = ASSETS_DIR / "in-spec-logo.png"
+SHAUN_CELEBRATE_GIF = ASSETS_DIR / "shaun_thumbs_up.gif"
+SHAUN_CELEBRATE_STILL = ASSETS_DIR / "shaun_thumbs_up.jpg"
 
 st.set_page_config(
     page_title="In-Spec Team Work Journal",
@@ -41,6 +44,21 @@ def render_header(title: str, caption: str | None = None) -> None:
     st.title(title)
     if caption:
         st.caption(caption)
+
+
+def celebrate_entry_saved() -> None:
+    """Show cartoon Shaun thumbs-up animation instead of balloons."""
+    media = SHAUN_CELEBRATE_GIF if SHAUN_CELEBRATE_GIF.exists() else SHAUN_CELEBRATE_STILL
+    if not media.exists():
+        return
+    left, mid, right = st.columns([1, 2, 1])
+    with mid:
+        st.image(str(media), use_container_width=True)
+        st.markdown(
+            "<p style='text-align:center; font-size:1.15rem; margin-top:0.25rem;'>"
+            "👍 Nice work — entry saved!</p>",
+            unsafe_allow_html=True,
+        )
 
 
 def bootstrap() -> None:
@@ -142,7 +160,7 @@ def page_new_entry() -> None:
             safety_notes=safety,
         )
         st.success(f"Saved entry #{entry_id} for {worker_name} on {entry_date.isoformat()}.")
-        st.balloons()
+        celebrate_entry_saved()
 
 
 def page_journal() -> None:
