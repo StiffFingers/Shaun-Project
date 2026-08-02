@@ -656,8 +656,13 @@ def main() -> None:
     st.sidebar.markdown("---")
     st.sidebar.markdown(
         f"**Today:** {date.today().strftime('%a, %b %d, %Y')}  \n"
-        f"Shared cloud database (export Excel often)"
+        f"**Data:** {db.storage_label()}"
     )
+    if not db.using_supabase():
+        st.sidebar.warning(
+            "Supabase is not configured. On Streamlit Cloud, data can reset. "
+            "Add `[supabase]` to Secrets (see secrets.example.toml)."
+        )
 
     if page == "New entry":
         render_header(
