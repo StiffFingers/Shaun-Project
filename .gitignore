@@ -11,3 +11,6 @@ venv/
 data/*.db
 data/*.xlsx
 data/*.db-journal
+
+# Local reference photos (not needed in deploy)
+assets/shaun_ref*.jpg
