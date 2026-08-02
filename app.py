@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import base64
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 import auth
 import db
@@ -15,6 +17,9 @@ ASSETS_DIR = Path(__file__).parent / "assets"
 LOGO_PATH = ASSETS_DIR / "in-spec-logo.png"
 SHAUN_CELEBRATE_GIF = ASSETS_DIR / "shaun_thumbs_up.gif"
 SHAUN_CELEBRATE_STILL = ASSETS_DIR / "shaun_thumbs_up.jpg"
+
+# How long the pop-up stays on screen (ms), similar feel to balloons
+CELEBRATION_MS = 3800
 
 st.set_page_config(
     page_title="In-Spec Team Work Journal",
@@ -47,18 +52,111 @@ def render_header(title: str, caption: str | None = None) -> None:
 
 
 def celebrate_entry_saved() -> None:
-    """Show cartoon Shaun thumbs-up animation instead of balloons."""
+    """Pop-up cartoon Shaun thumbs-up, then auto-dismiss (like balloons)."""
     media = SHAUN_CELEBRATE_GIF if SHAUN_CELEBRATE_GIF.exists() else SHAUN_CELEBRATE_STILL
     if not media.exists():
         return
-    left, mid, right = st.columns([1, 2, 1])
-    with mid:
-        st.image(str(media), use_container_width=True)
-        st.markdown(
-            "<p style='text-align:center; font-size:1.15rem; margin-top:0.25rem;'>"
-            "👍 Nice work — entry saved!</p>",
-            unsafe_allow_html=True,
-        )
+
+    raw = media.read_bytes()
+    b64 = base64.b64encode(raw).decode("ascii")
+    mime = "image/gif" if media.suffix.lower() == ".gif" else "image/jpeg"
+    duration_ms = CELEBRATION_MS
+
+    # Inject into parent page so it covers the app and removes itself (balloons-style).
+    # Falls back to an in-component overlay if parent access is blocked.
+    components.html(
+        f"""
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  html, body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; }}
+</style>
+</head>
+<body>
+<script>
+(function () {{
+  const DURATION = {duration_ms};
+  const src = "data:{mime};base64,{b64}";
+
+  function buildOverlay(doc) {{
+    const existing = doc.getElementById("shaun-celebration-overlay");
+    if (existing) existing.remove();
+
+    const style = doc.createElement("style");
+    style.id = "shaun-celebration-style";
+    style.textContent = `
+      @keyframes shaunCelebInOut {{
+        0%   {{ opacity: 0; transform: scale(0.25) translateY(50px); }}
+        12%  {{ opacity: 1; transform: scale(1.08) translateY(0); }}
+        22%  {{ transform: scale(1) translateY(0); }}
+        78%  {{ opacity: 1; transform: scale(1) translateY(0); }}
+        100% {{ opacity: 0; transform: scale(0.9) translateY(-24px); }}
+      }}
+      #shaun-celebration-overlay {{
+        position: fixed !important;
+        inset: 0 !important;
+        z-index: 2147483646 !important;
+        display: flex !important;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: rgba(10, 25, 40, 0.42);
+        animation: shaunCelebInOut ${{DURATION}}ms ease-in-out forwards;
+        pointer-events: none !important;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      }}
+      #shaun-celebration-overlay img {{
+        width: min(300px, 72vw);
+        height: auto;
+        border-radius: 18px;
+        box-shadow: 0 16px 48px rgba(0,0,0,0.4);
+        background: #fff;
+      }}
+      #shaun-celebration-overlay .shaun-caption {{
+        margin-top: 14px;
+        color: #fff;
+        font-size: 1.2rem;
+        font-weight: 650;
+        text-shadow: 0 2px 10px rgba(0,0,0,0.55);
+        text-align: center;
+      }}
+    `;
+
+    const oldStyle = doc.getElementById("shaun-celebration-style");
+    if (oldStyle) oldStyle.remove();
+    doc.head.appendChild(style);
+
+    const overlay = doc.createElement("div");
+    overlay.id = "shaun-celebration-overlay";
+    overlay.innerHTML = `
+      <img src="${{src}}" alt="Shaun thumbs up" />
+      <div class="shaun-caption">👍 Nice work — entry saved!</div>
+    `;
+    doc.body.appendChild(overlay);
+
+    setTimeout(function () {{
+      const el = doc.getElementById("shaun-celebration-overlay");
+      if (el) el.remove();
+      const st = doc.getElementById("shaun-celebration-style");
+      if (st) st.remove();
+    }}, DURATION + 80);
+  }}
+
+  try {{
+    buildOverlay(window.parent.document);
+  }} catch (e) {{
+    buildOverlay(document);
+  }}
+}})();
+</script>
+</body>
+</html>
+        """,
+        height=1,
+        width=1,
+    )
 
 
 def bootstrap() -> None:
