@@ -625,6 +625,10 @@ def page_export() -> None:
 
 
 def page_crew() -> None:
+    st.caption(
+        "Deactivate people/sites that are done. **Delete** is only allowed when "
+        "there are no linked journal entries (protects history)."
+    )
     left, right = st.columns(2)
 
     with left:
@@ -641,18 +645,35 @@ def page_crew() -> None:
                     st.error(str(exc))
 
         for w in _cached_workers(active_only=False):
-            cols = st.columns([3, 1, 1])
-            cols[0].write(w["name"] + ("" if w["active"] else " _(inactive)_"))
+            entry_count = db.count_entries_for_worker(w["id"])
+            cols = st.columns([3, 1, 1, 1])
+            label = w["name"] + ("" if w["active"] else " _(inactive)_")
+            if entry_count:
+                label += f" · {entry_count} entr{'y' if entry_count == 1 else 'ies'}"
+            cols[0].write(label)
+
             if w["active"]:
                 if cols[1].button("Deactivate", key=f"w_off_{w['id']}"):
                     db.set_worker_active(w["id"], False)
                     _clear_crew_cache()
                     st.rerun()
             else:
-                if cols[2].button("Activate", key=f"w_on_{w['id']}"):
+                if cols[1].button("Activate", key=f"w_on_{w['id']}"):
                     db.set_worker_active(w["id"], True)
                     _clear_crew_cache()
                     st.rerun()
+
+            if entry_count == 0:
+                if cols[2].button("Delete", key=f"w_del_{w['id']}"):
+                    try:
+                        db.delete_worker(w["id"])
+                        _clear_crew_cache()
+                        st.success(f"Deleted worker: {w['name']}")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(str(exc))
+            else:
+                cols[2].caption("In use")
 
     with right:
         st.markdown("### Projects / job sites")
@@ -668,18 +689,35 @@ def page_crew() -> None:
                     st.error(str(exc))
 
         for p in _cached_projects(active_only=False):
-            cols = st.columns([3, 1, 1])
-            cols[0].write(p["name"] + ("" if p["active"] else " _(inactive)_"))
+            entry_count = db.count_entries_for_project(p["id"])
+            cols = st.columns([3, 1, 1, 1])
+            label = p["name"] + ("" if p["active"] else " _(inactive)_")
+            if entry_count:
+                label += f" · {entry_count} entr{'y' if entry_count == 1 else 'ies'}"
+            cols[0].write(label)
+
             if p["active"]:
                 if cols[1].button("Deactivate", key=f"p_off_{p['id']}"):
                     db.set_project_active(p["id"], False)
                     _clear_crew_cache()
                     st.rerun()
             else:
-                if cols[2].button("Activate", key=f"p_on_{p['id']}"):
+                if cols[1].button("Activate", key=f"p_on_{p['id']}"):
                     db.set_project_active(p["id"], True)
                     _clear_crew_cache()
                     st.rerun()
+
+            if entry_count == 0:
+                if cols[2].button("Delete", key=f"p_del_{p['id']}"):
+                    try:
+                        db.delete_project(p["id"])
+                        _clear_crew_cache()
+                        st.success(f"Deleted project: {p['name']}")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(str(exc))
+            else:
+                cols[2].caption("In use")
 
 
 def main() -> None:

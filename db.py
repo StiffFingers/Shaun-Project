@@ -345,6 +345,45 @@ def set_worker_active(worker_id: int, active: bool) -> None:
         )
 
 
+def count_entries_for_worker(worker_id: int) -> int:
+    if using_supabase():
+        resp = (
+            _sb()
+            .table("entries")
+            .select("id", count="exact")
+            .eq("worker_id", worker_id)
+            .limit(1)
+            .execute()
+        )
+        if resp.count is not None:
+            return int(resp.count)
+        return len(resp.data or [])
+
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM entries WHERE worker_id = ?",
+            (worker_id,),
+        ).fetchone()
+        return int(row[0] if row else 0)
+
+
+def delete_worker(worker_id: int) -> None:
+    """Hard-delete only when this worker has no journal entries."""
+    n = count_entries_for_worker(worker_id)
+    if n > 0:
+        raise ValueError(
+            f"Cannot delete: this worker has {n} log entr"
+            f"{'y' if n == 1 else 'ies'}. Deactivate instead."
+        )
+
+    if using_supabase():
+        _sb().table("workers").delete().eq("id", worker_id).execute()
+        return
+
+    with get_conn() as conn:
+        conn.execute("DELETE FROM workers WHERE id = ?", (worker_id,))
+
+
 # --- Projects ---
 
 
@@ -402,6 +441,45 @@ def set_project_active(project_id: int, active: bool) -> None:
             "UPDATE projects SET active = ? WHERE id = ?",
             (1 if active else 0, project_id),
         )
+
+
+def count_entries_for_project(project_id: int) -> int:
+    if using_supabase():
+        resp = (
+            _sb()
+            .table("entries")
+            .select("id", count="exact")
+            .eq("project_id", project_id)
+            .limit(1)
+            .execute()
+        )
+        if resp.count is not None:
+            return int(resp.count)
+        return len(resp.data or [])
+
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM entries WHERE project_id = ?",
+            (project_id,),
+        ).fetchone()
+        return int(row[0] if row else 0)
+
+
+def delete_project(project_id: int) -> None:
+    """Hard-delete only when this project has no journal entries."""
+    n = count_entries_for_project(project_id)
+    if n > 0:
+        raise ValueError(
+            f"Cannot delete: this project has {n} log entr"
+            f"{'y' if n == 1 else 'ies'}. Deactivate instead."
+        )
+
+    if using_supabase():
+        _sb().table("projects").delete().eq("id", project_id).execute()
+        return
+
+    with get_conn() as conn:
+        conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
 
 
 # --- Entries ---
