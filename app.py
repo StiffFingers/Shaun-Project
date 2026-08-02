@@ -1,8 +1,9 @@
-"""Construction Work Journal — daily logs for a small crew + Excel export."""
+"""In-Spec Team Work Journal — daily logs for a small crew + Excel export."""
 
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
 import streamlit as st
 
@@ -10,9 +11,11 @@ import auth
 import db
 from export import build_excel
 
+LOGO_PATH = Path(__file__).parent / "assets" / "in-spec-logo.png"
+
 st.set_page_config(
-    page_title="Construction Work Journal",
-    page_icon="🏗️",
+    page_title="In-Spec Team Work Journal",
+    page_icon=str(LOGO_PATH) if LOGO_PATH.exists() else "🏗️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -29,6 +32,15 @@ WEATHER_OPTIONS = [
     "Extreme Cold",
     "Other / Mixed",
 ]
+
+
+def render_header(title: str, caption: str | None = None) -> None:
+    """Company logo + page heading (replaces crane emoji)."""
+    if LOGO_PATH.exists():
+        st.image(str(LOGO_PATH), width=300)
+    st.title(title)
+    if caption:
+        st.caption(caption)
 
 
 def bootstrap() -> None:
@@ -134,9 +146,6 @@ def page_new_entry() -> None:
 
 
 def page_journal() -> None:
-    st.subheader("Journal")
-    st.caption("Browse, filter, edit, or delete log entries.")
-
     workers = _worker_options(active_only=False)
     projects = _project_options(active_only=False)
 
@@ -360,7 +369,6 @@ def _edit_entry_form(
 
 
 def page_export() -> None:
-    st.subheader("Excel export")
     st.caption(
         "Download one spreadsheet with all matching entries plus summary sheets by worker and project."
     )
@@ -450,9 +458,6 @@ def page_export() -> None:
 
 
 def page_crew() -> None:
-    st.subheader("Crew & projects")
-    st.caption("Manage who can be selected on log entries and which job sites appear.")
-
     left, right = st.columns(2)
 
     with left:
@@ -531,20 +536,28 @@ def main() -> None:
     )
 
     if page == "New entry":
-        st.title("In-Spec Team Work Journal Entry")
-        st.caption("Daily site logs for your crew — then export everything to Excel.")
+        render_header(
+            "In-Spec Team Work Journal Entry",
+            "Daily site logs for your crew — then export everything to Excel.",
+        )
         page_new_entry()
     elif page == "Journal":
-        st.title("🏗️ Construction Work Journal")
-        st.caption("Daily site logs for your crew — then export everything to Excel.")
+        render_header(
+            "Journal",
+            "Browse, filter, edit, or delete log entries.",
+        )
         page_journal()
     elif page == "Excel export":
-        st.title("🏗️ Construction Work Journal")
-        st.caption("Daily site logs for your crew — then export everything to Excel.")
+        render_header(
+            "Excel export",
+            "Download a spreadsheet overview of matching entries.",
+        )
         page_export()
     else:
-        st.title("🏗️ Construction Work Journal")
-        st.caption("Daily site logs for your crew — then export everything to Excel.")
+        render_header(
+            "Crew & projects",
+            "Manage who can be selected on log entries and which job sites appear.",
+        )
         page_crew()
 
 

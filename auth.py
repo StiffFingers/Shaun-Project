@@ -17,10 +17,13 @@ Generate a hash locally:
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import bcrypt
 import streamlit as st
+
+LOGO_PATH = Path(__file__).parent / "assets" / "in-spec-logo.png"
 
 
 def auth_enabled() -> bool:
@@ -123,7 +126,9 @@ def require_login() -> bool:
     if is_logged_in():
         return True
 
-    st.title("🏗️ Construction Work Journal")
+    if LOGO_PATH.exists():
+        st.image(str(LOGO_PATH), width=300)
+    st.title("In-Spec Team Work Journal")
     st.caption("Sign in to continue. Access is limited to invited people.")
 
     creds = _credentials()
