@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.Python
+.env
+.venv/
+venv/
+.DS_Store
+.streamlit/secrets.toml
+
+# Local database & exports — keep out of Git (starts fresh in the cloud)
+data/*.db
+data/*.xlsx
+data/*.db-journal

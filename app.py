@@ -1,0 +1,541 @@
+"""Construction Work Journal — daily logs for a small crew + Excel export."""
+
+from __future__ import annotations
+
+from datetime import date, datetime, timedelta
+
+import streamlit as st
+
+import db
+from export import build_excel
+
+st.set_page_config(
+    page_title="Construction Work Journal",
+    page_icon="🏗️",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+WEATHER_OPTIONS = [
+    "Clear / Sunny",
+    "Partly Cloudy",
+    "Overcast",
+    "Light Rain",
+    "Heavy Rain",
+    "Snow",
+    "Windy",
+    "Extreme Heat",
+    "Extreme Cold",
+    "Other / Mixed",
+]
+
+
+def bootstrap() -> None:
+    db.init_db()
+    db.seed_defaults()
+
+
+def _worker_options(active_only: bool = True) -> dict[str, int]:
+    return {w["name"]: w["id"] for w in db.list_workers(active_only=active_only)}
+
+
+def _project_options(active_only: bool = True) -> dict[str, int]:
+    return {p["name"]: p["id"] for p in db.list_projects(active_only=active_only)}
+
+
+def _id_to_name(options: dict[str, int], target_id: int) -> str | None:
+    for name, oid in options.items():
+        if oid == target_id:
+            return name
+    return None
+
+
+def page_new_entry() -> None:
+    st.subheader("New daily log entry")
+    st.caption("Fill this out at the end of the shift — only a few fields are required.")
+
+    workers = _worker_options()
+    projects = _project_options()
+
+    if not workers:
+        st.warning("Add at least one worker in **Crew & Projects** before logging.")
+        return
+    if not projects:
+        st.warning("Add at least one project in **Crew & Projects** before logging.")
+        return
+
+    with st.form("new_entry", clear_on_submit=True):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            entry_date = st.date_input("Date", value=date.today())
+        with c2:
+            worker_name = st.selectbox("Worker", list(workers.keys()))
+        with c3:
+            project_name = st.selectbox("Project / job site", list(projects.keys()))
+
+        c4, c5 = st.columns(2)
+        with c4:
+            weather = st.selectbox("Weather", WEATHER_OPTIONS)
+        with c5:
+            hours = st.number_input(
+                "Hours worked",
+                min_value=0.0,
+                max_value=24.0,
+                value=8.0,
+                step=0.25,
+            )
+
+        work_done = st.text_area(
+            "Work performed *",
+            placeholder="What did you do today? e.g. Formed footings on north wall, poured slab section B…",
+            height=120,
+        )
+        crew_notes = st.text_area(
+            "Crew notes",
+            placeholder="Who was on site, subcontractors, headcount…",
+            height=80,
+        )
+        materials_notes = st.text_area(
+            "Materials",
+            placeholder="Deliveries, materials used, shortages…",
+            height=80,
+        )
+        issues = st.text_area(
+            "Issues / delays",
+            placeholder="Weather delays, missing materials, change orders, access problems…",
+            height=80,
+        )
+        safety = st.text_area(
+            "Safety notes",
+            placeholder="Incidents, near misses, toolbox talk topics, PPE issues…",
+            height=80,
+        )
+
+        submitted = st.form_submit_button("Save entry", type="primary", use_container_width=True)
+
+    if submitted:
+        if not work_done.strip():
+            st.error("Please describe the work performed.")
+            return
+        entry_id = db.add_entry(
+            entry_date=entry_date,
+            worker_id=workers[worker_name],
+            project_id=projects[project_name],
+            weather=weather,
+            hours_worked=hours,
+            work_done=work_done,
+            crew_notes=crew_notes,
+            materials_notes=materials_notes,
+            issues_delays=issues,
+            safety_notes=safety,
+        )
+        st.success(f"Saved entry #{entry_id} for {worker_name} on {entry_date.isoformat()}.")
+        st.balloons()
+
+
+def page_journal() -> None:
+    st.subheader("Journal")
+    st.caption("Browse, filter, edit, or delete log entries.")
+
+    workers = _worker_options(active_only=False)
+    projects = _project_options(active_only=False)
+
+    with st.expander("Filters", expanded=True):
+        f1, f2, f3, f4 = st.columns(4)
+        with f1:
+            date_from = st.date_input(
+                "From",
+                value=date.today() - timedelta(days=30),
+                key="filter_from",
+            )
+        with f2:
+            date_to = st.date_input("To", value=date.today(), key="filter_to")
+        with f3:
+            worker_filter = st.selectbox(
+                "Worker",
+                ["All workers"] + list(workers.keys()),
+                key="filter_worker",
+            )
+        with f4:
+            project_filter = st.selectbox(
+                "Project",
+                ["All projects"] + list(projects.keys()),
+                key="filter_project",
+            )
+
+    worker_id = None if worker_filter == "All workers" else workers.get(worker_filter)
+    project_id = None if project_filter == "All projects" else projects.get(project_filter)
+
+    entries = db.list_entries(
+        date_from=date_from.isoformat(),
+        date_to=date_to.isoformat(),
+        worker_id=worker_id,
+        project_id=project_id,
+    )
+    stats = db.entry_stats(
+        date_from=date_from.isoformat(),
+        date_to=date_to.isoformat(),
+        worker_id=worker_id,
+        project_id=project_id,
+    )
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Entries", stats["count"])
+    m2.metric("Total hours", f"{stats['total_hours']:.1f}")
+    m3.metric("Workers", stats["worker_count"])
+    m4.metric("Projects", stats["project_count"])
+
+    if not entries:
+        st.info("No entries match these filters.")
+        return
+
+    for entry in entries:
+        with st.container(border=True):
+            top_l, top_r = st.columns([4, 1])
+            with top_l:
+                st.markdown(
+                    f"**#{entry['id']} · {entry['entry_date']}** — "
+                    f"{entry['worker_name']} @ **{entry['project_name']}** · "
+                    f"{entry['hours_worked']}h · {entry['weather'] or '—'}"
+                )
+            with top_r:
+                action = st.selectbox(
+                    "Action",
+                    ["", "Edit", "Delete"],
+                    key=f"action_{entry['id']}",
+                    label_visibility="collapsed",
+                )
+
+            st.write(entry["work_done"] or "_(no work description)_")
+
+            details = []
+            if entry["crew_notes"]:
+                details.append(f"**Crew:** {entry['crew_notes']}")
+            if entry["materials_notes"]:
+                details.append(f"**Materials:** {entry['materials_notes']}")
+            if entry["issues_delays"]:
+                details.append(f"**Issues:** {entry['issues_delays']}")
+            if entry["safety_notes"]:
+                details.append(f"**Safety:** {entry['safety_notes']}")
+            if details:
+                st.markdown("  \n".join(details))
+
+            if action == "Edit":
+                _edit_entry_form(entry, workers, projects)
+            elif action == "Delete":
+                if st.button(
+                    f"Confirm delete entry #{entry['id']}",
+                    key=f"del_{entry['id']}",
+                    type="primary",
+                ):
+                    db.delete_entry(entry["id"])
+                    st.success(f"Deleted entry #{entry['id']}.")
+                    st.rerun()
+
+
+def _edit_entry_form(
+    entry: dict,
+    workers: dict[str, int],
+    projects: dict[str, int],
+) -> None:
+    st.markdown("---")
+    st.markdown(f"#### Edit entry #{entry['id']}")
+
+    # Include inactive names if needed so existing links still show
+    active_workers = _worker_options(active_only=True)
+    active_projects = _project_options(active_only=True)
+    # Merge so current selection always available
+    all_workers = {**workers, **active_workers}
+    all_projects = {**projects, **active_projects}
+
+    worker_names = list(all_workers.keys())
+    project_names = list(all_projects.keys())
+    current_worker = entry["worker_name"]
+    current_project = entry["project_name"]
+    if current_worker not in worker_names:
+        worker_names.insert(0, current_worker)
+        all_workers[current_worker] = entry["worker_id"]
+    if current_project not in project_names:
+        project_names.insert(0, current_project)
+        all_projects[current_project] = entry["project_id"]
+
+    with st.form(f"edit_{entry['id']}"):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            entry_date = st.date_input(
+                "Date",
+                value=date.fromisoformat(entry["entry_date"]),
+                key=f"ed_date_{entry['id']}",
+            )
+        with c2:
+            worker_name = st.selectbox(
+                "Worker",
+                worker_names,
+                index=worker_names.index(current_worker),
+                key=f"ed_worker_{entry['id']}",
+            )
+        with c3:
+            project_name = st.selectbox(
+                "Project",
+                project_names,
+                index=project_names.index(current_project),
+                key=f"ed_project_{entry['id']}",
+            )
+
+        c4, c5 = st.columns(2)
+        with c4:
+            weather_idx = (
+                WEATHER_OPTIONS.index(entry["weather"])
+                if entry["weather"] in WEATHER_OPTIONS
+                else 0
+            )
+            weather = st.selectbox(
+                "Weather",
+                WEATHER_OPTIONS,
+                index=weather_idx,
+                key=f"ed_weather_{entry['id']}",
+            )
+        with c5:
+            hours = st.number_input(
+                "Hours worked",
+                min_value=0.0,
+                max_value=24.0,
+                value=float(entry["hours_worked"] or 0),
+                step=0.25,
+                key=f"ed_hours_{entry['id']}",
+            )
+
+        work_done = st.text_area(
+            "Work performed",
+            value=entry["work_done"] or "",
+            height=100,
+            key=f"ed_work_{entry['id']}",
+        )
+        crew_notes = st.text_area(
+            "Crew notes",
+            value=entry["crew_notes"] or "",
+            height=70,
+            key=f"ed_crew_{entry['id']}",
+        )
+        materials_notes = st.text_area(
+            "Materials",
+            value=entry["materials_notes"] or "",
+            height=70,
+            key=f"ed_mat_{entry['id']}",
+        )
+        issues = st.text_area(
+            "Issues / delays",
+            value=entry["issues_delays"] or "",
+            height=70,
+            key=f"ed_iss_{entry['id']}",
+        )
+        safety = st.text_area(
+            "Safety notes",
+            value=entry["safety_notes"] or "",
+            height=70,
+            key=f"ed_safe_{entry['id']}",
+        )
+
+        saved = st.form_submit_button("Update entry", type="primary")
+
+    if saved:
+        if not work_done.strip():
+            st.error("Work performed cannot be empty.")
+            return
+        db.update_entry(
+            entry_id=entry["id"],
+            entry_date=entry_date,
+            worker_id=all_workers[worker_name],
+            project_id=all_projects[project_name],
+            weather=weather,
+            hours_worked=hours,
+            work_done=work_done,
+            crew_notes=crew_notes,
+            materials_notes=materials_notes,
+            issues_delays=issues,
+            safety_notes=safety,
+        )
+        st.success(f"Updated entry #{entry['id']}.")
+        st.rerun()
+
+
+def page_export() -> None:
+    st.subheader("Excel export")
+    st.caption(
+        "Download one spreadsheet with all matching entries plus summary sheets by worker and project."
+    )
+
+    workers = _worker_options(active_only=False)
+    projects = _project_options(active_only=False)
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        date_from = st.date_input(
+            "From",
+            value=date.today().replace(day=1),
+            key="export_from",
+        )
+    with c2:
+        date_to = st.date_input("To", value=date.today(), key="export_to")
+    with c3:
+        worker_filter = st.selectbox(
+            "Worker",
+            ["All workers"] + list(workers.keys()),
+            key="export_worker",
+        )
+    with c4:
+        project_filter = st.selectbox(
+            "Project",
+            ["All projects"] + list(projects.keys()),
+            key="export_project",
+        )
+
+    worker_id = None if worker_filter == "All workers" else workers.get(worker_filter)
+    project_id = None if project_filter == "All projects" else projects.get(project_filter)
+
+    entries = db.list_entries(
+        date_from=date_from.isoformat(),
+        date_to=date_to.isoformat(),
+        worker_id=worker_id,
+        project_id=project_id,
+    )
+    stats = db.entry_stats(
+        date_from=date_from.isoformat(),
+        date_to=date_to.isoformat(),
+        worker_id=worker_id,
+        project_id=project_id,
+    )
+
+    st.write(
+        f"**{stats['count']}** entries · **{stats['total_hours']:.1f}** hours · "
+        f"{stats['worker_count']} workers · {stats['project_count']} projects"
+    )
+
+    filters_summary = (
+        f"Date {date_from.isoformat()} to {date_to.isoformat()}; "
+        f"Worker: {worker_filter}; Project: {project_filter}"
+    )
+
+    if entries:
+        # Preview table
+        preview_rows = [
+            {
+                "Date": e["entry_date"],
+                "Worker": e["worker_name"],
+                "Project": e["project_name"],
+                "Hours": e["hours_worked"],
+                "Weather": e["weather"],
+                "Work performed": (e["work_done"] or "")[:120],
+            }
+            for e in sorted(entries, key=lambda x: (x["entry_date"], x["id"]))
+        ]
+        st.dataframe(preview_rows, use_container_width=True, hide_index=True)
+
+        xlsx_bytes = build_excel(entries, filters_summary=filters_summary)
+        filename = f"work_journal_{date_from.isoformat()}_to_{date_to.isoformat()}.xlsx"
+        st.download_button(
+            label="Download Excel spreadsheet",
+            data=xlsx_bytes,
+            file_name=filename,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary",
+            use_container_width=True,
+        )
+        st.info(
+            "The file includes four sheets: **Export Info**, **All Entries**, "
+            "**By Worker**, and **By Project**."
+        )
+    else:
+        st.warning("Nothing to export for these filters.")
+
+
+def page_crew() -> None:
+    st.subheader("Crew & projects")
+    st.caption("Manage who can be selected on log entries and which job sites appear.")
+
+    left, right = st.columns(2)
+
+    with left:
+        st.markdown("### Workers")
+        with st.form("add_worker"):
+            name = st.text_input("New worker name", placeholder="e.g. Chris Morgan")
+            if st.form_submit_button("Add worker", use_container_width=True):
+                try:
+                    db.add_worker(name)
+                    st.success(f"Added worker: {name.strip()}")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(str(exc))
+
+        for w in db.list_workers(active_only=False):
+            cols = st.columns([3, 1, 1])
+            cols[0].write(w["name"] + ("" if w["active"] else " _(inactive)_"))
+            if w["active"]:
+                if cols[1].button("Deactivate", key=f"w_off_{w['id']}"):
+                    db.set_worker_active(w["id"], False)
+                    st.rerun()
+            else:
+                if cols[2].button("Activate", key=f"w_on_{w['id']}"):
+                    db.set_worker_active(w["id"], True)
+                    st.rerun()
+
+    with right:
+        st.markdown("### Projects / job sites")
+        with st.form("add_project"):
+            name = st.text_input("New project name", placeholder="e.g. Bridge Deck Phase 2")
+            if st.form_submit_button("Add project", use_container_width=True):
+                try:
+                    db.add_project(name)
+                    st.success(f"Added project: {name.strip()}")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(str(exc))
+
+        for p in db.list_projects(active_only=False):
+            cols = st.columns([3, 1, 1])
+            cols[0].write(p["name"] + ("" if p["active"] else " _(inactive)_"))
+            if p["active"]:
+                if cols[1].button("Deactivate", key=f"p_off_{p['id']}"):
+                    db.set_project_active(p["id"], False)
+                    st.rerun()
+            else:
+                if cols[2].button("Activate", key=f"p_on_{p['id']}"):
+                    db.set_project_active(p["id"], True)
+                    st.rerun()
+
+
+def main() -> None:
+    bootstrap()
+
+    st.title("🏗️ Construction Work Journal")
+    st.caption("Daily site logs for your crew — then export everything to Excel.")
+
+    page = st.sidebar.radio(
+        "Navigate",
+        [
+            "New entry",
+            "Journal",
+            "Excel export",
+            "Crew & projects",
+        ],
+        index=0,
+    )
+
+    st.sidebar.markdown("---")
+    st.sidebar.markdown(
+        f"**Today:** {date.today().strftime('%a, %b %d, %Y')}  \n"
+        f"Data saved locally in `data/journal.db`"
+    )
+
+    if page == "New entry":
+        page_new_entry()
+    elif page == "Journal":
+        page_journal()
+    elif page == "Excel export":
+        page_export()
+    else:
+        page_crew()
+
+
+if __name__ == "__main__":
+    main()
