@@ -9,7 +9,6 @@ from __future__ import annotations
 import sqlite3
 from contextlib import contextmanager
 from datetime import date, datetime
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, Generator, Optional
 
@@ -69,17 +68,48 @@ def _as_date_str(entry_date: date | str) -> str:
 # ---------------------------------------------------------------------------
 
 
+_PLACEHOLDER_MARKERS = (
+    "xxxxx",
+    "your_project",
+    "your-project",
+    "paste_",
+    "your_service",
+    "example.supabase",
+    "replace_me",
+    "changeme",
+)
+
+
+def _looks_like_placeholder(value: str) -> bool:
+    lower = value.strip().lower()
+    if not lower:
+        return True
+    return any(m in lower for m in _PLACEHOLDER_MARKERS)
+
+
 def _supabase_config() -> Optional[dict[str, str]]:
+    """Return url/key only when secrets look real (not template placeholders)."""
     try:
         import streamlit as st
 
         cfg = st.secrets.get("supabase", None)
         if not cfg:
             return None
-        url = str(cfg.get("url", "")).strip()
+        url = str(cfg.get("url", "")).strip().rstrip("/")
         key = str(cfg.get("key", "")).strip()
-        if url and key:
-            return {"url": url, "key": key}
+        if not url or not key:
+            return None
+        # Ignore copy-paste template values so the app does not crash
+        if _looks_like_placeholder(url) or _looks_like_placeholder(key):
+            return None
+        if "supabase.co" not in url and "supabase.in" not in url:
+            # Still allow custom domains, but require https
+            if not url.startswith("https://"):
+                return None
+        if len(key) < 40:
+            # Real service_role JWTs are long
+            return None
+        return {"url": url, "key": key}
     except Exception:
         pass
     return None
@@ -90,10 +120,13 @@ def using_supabase() -> bool:
 
 
 def storage_label() -> str:
-    return "Supabase (cloud, permanent)" if using_supabase() else "Local SQLite (resets on Streamlit Cloud)"
+    return (
+        "Supabase (cloud, permanent)"
+        if using_supabase()
+        else "Local SQLite (resets on Streamlit Cloud)"
+    )
 
 
-@lru_cache(maxsize=1)
 def _supabase_client():
     from supabase import create_client
 
@@ -104,8 +137,56 @@ def _supabase_client():
 
 
 def _sb():
-    # Don't cache forever if secrets change mid-session in rare cases
-    return _supabase_client()
+    if not hasattr(_sb, "_client") or _sb._client is None:
+        _sb._client = _supabase_client()
+    return _sb._client
+
+
+_sb._client = None  # type: ignore[attr-defined]
+
+
+def reset_supabase_client() -> None:
+    _sb._client = None  # type: ignore[attr-defined]
+
+
+def check_supabase() -> tuple[bool, str]:
+    """
+    Test Supabase connectivity and that required tables exist.
+    Returns (ok, message).
+    """
+    cfg = _supabase_config()
+    if not cfg:
+        # Distinguish missing vs placeholder
+        try:
+            import streamlit as st
+
+            raw = st.secrets.get("supabase", None)
+            if raw and (raw.get("url") or raw.get("key")):
+                return (
+                    False,
+                    "Supabase secrets look incomplete or still use placeholder text "
+                    "(e.g. xxxxx or PASTE_...). Use your real Project URL and "
+                    "service_role key from Supabase → Project Settings → API.",
+                )
+        except Exception:
+            pass
+        return False, "Supabase is not configured in secrets."
+
+    try:
+        reset_supabase_client()
+        client = _sb()
+        # Lightweight probe — fails clearly if table missing or key wrong
+        client.table("workers").select("id").limit(1).execute()
+        return True, "Connected to Supabase."
+    except Exception as exc:
+        msg = str(exc)
+        hint = (
+            "Check: (1) Project URL is correct, "
+            "(2) key is the **service_role** secret (not anon), "
+            "(3) you ran supabase_schema.sql in the SQL Editor, "
+            "(4) key is one line inside double quotes in Secrets."
+        )
+        return False, f"Supabase connection failed: {msg}\n\n{hint}"
 
 
 def _normalize_worker(row: dict[str, Any]) -> dict[str, Any]:

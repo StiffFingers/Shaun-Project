@@ -167,9 +167,26 @@ def celebrate_entry_saved() -> None:
     )
 
 
-def bootstrap() -> None:
-    db.init_db()
-    db.seed_defaults()
+def bootstrap() -> tuple[bool, str]:
+    """
+    Initialize storage. Returns (ok, error_message).
+    Never crashes the page on bad Supabase secrets — surfaces a message instead.
+    """
+    try:
+        if db.using_supabase():
+            ok, message = db.check_supabase()
+            if not ok:
+                return False, message
+        db.init_db()
+        db.seed_defaults()
+        return True, ""
+    except Exception as exc:
+        return (
+            False,
+            f"Database startup failed: {exc}\n\n"
+            "If you just added Supabase secrets, confirm the URL and "
+            "**service_role** key, and that you ran `supabase_schema.sql`.",
+        )
 
 
 def _worker_options(active_only: bool = True) -> dict[str, int]:
@@ -634,10 +651,40 @@ def page_crew() -> None:
 
 
 def main() -> None:
-    bootstrap()
+    ok, db_error = bootstrap()
 
     # Gate the whole app behind email/password when secrets are configured
     if not auth.require_login():
+        return
+
+    if not ok:
+        if LOGO_PATH.exists():
+            st.image(str(LOGO_PATH), width=300)
+        st.title("Database setup needed")
+        st.error(db_error)
+        st.markdown(
+            """
+### Fix Supabase (checklist)
+
+1. Open [Supabase](https://supabase.com/dashboard) → your project  
+2. **SQL Editor** → run the full contents of `supabase_schema.sql` (from the GitHub repo) once  
+3. **Project Settings → API** copy:
+   - **Project URL** (real URL, not `xxxxx`)
+   - **`service_role`** key (click Reveal) — **not** the `anon` key  
+4. Streamlit → **Manage app → Settings → Secrets** — use real values:
+
+```toml
+[supabase]
+url = "https://YOURREALREF.supabase.co"
+key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...."
+```
+
+5. Save secrets and wait for the app to reboot  
+6. Refresh this page  
+
+**Do not** leave placeholders like `xxxxx` or `PASTE_SERVICE_ROLE_KEY_HERE` — those break the app.
+            """
+        )
         return
 
     page = st.sidebar.radio(
@@ -660,34 +707,42 @@ def main() -> None:
     )
     if not db.using_supabase():
         st.sidebar.warning(
-            "Supabase is not configured. On Streamlit Cloud, data can reset. "
-            "Add `[supabase]` to Secrets (see secrets.example.toml)."
+            "Supabase is not configured with real credentials. "
+            "On Streamlit Cloud, data can reset until you add a real "
+            "`[supabase]` url + service_role key."
         )
 
-    if page == "New entry":
-        render_header(
-            "In-Spec Team Work Journal Entry",
-            "Daily site logs for your crew — then export everything to Excel.",
+    try:
+        if page == "New entry":
+            render_header(
+                "In-Spec Team Work Journal Entry",
+                "Daily site logs for your crew — then export everything to Excel.",
+            )
+            page_new_entry()
+        elif page == "Journal":
+            render_header(
+                "Journal",
+                "Browse, filter, edit, or delete log entries.",
+            )
+            page_journal()
+        elif page == "Excel export":
+            render_header(
+                "Excel export",
+                "Download a spreadsheet overview of matching entries.",
+            )
+            page_export()
+        else:
+            render_header(
+                "Crew & projects",
+                "Manage who can be selected on log entries and which job sites appear.",
+            )
+            page_crew()
+    except Exception as exc:
+        st.error(f"Something went wrong talking to the database: {exc}")
+        st.info(
+            "If this started after adding Supabase, double-check the service_role key "
+            "and that tables exist (run supabase_schema.sql)."
         )
-        page_new_entry()
-    elif page == "Journal":
-        render_header(
-            "Journal",
-            "Browse, filter, edit, or delete log entries.",
-        )
-        page_journal()
-    elif page == "Excel export":
-        render_header(
-            "Excel export",
-            "Download a spreadsheet overview of matching entries.",
-        )
-        page_export()
-    else:
-        render_header(
-            "Crew & projects",
-            "Manage who can be selected on log entries and which job sites appear.",
-        )
-        page_crew()
 
 
 if __name__ == "__main__":
