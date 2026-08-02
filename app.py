@@ -15,11 +15,12 @@ from export import build_excel
 
 ASSETS_DIR = Path(__file__).parent / "assets"
 LOGO_PATH = ASSETS_DIR / "in-spec-logo.png"
-SHAUN_CELEBRATE_GIF = ASSETS_DIR / "shaun_thumbs_up.gif"
-SHAUN_CELEBRATE_STILL = ASSETS_DIR / "shaun_thumbs_up.jpg"
+# Still image only (first frame of the old GIF) — pops up then disappears
+SHAUN_CELEBRATE_STILL = ASSETS_DIR / "shaun_celebrate_still.png"
+SHAUN_CELEBRATE_FALLBACK = ASSETS_DIR / "shaun_thumbs_up.jpg"
 
 # How long the pop-up stays on screen (ms), similar feel to balloons
-CELEBRATION_MS = 3800
+CELEBRATION_MS = 3200
 
 st.set_page_config(
     page_title="In-Spec Team Work Journal",
@@ -52,14 +53,21 @@ def render_header(title: str, caption: str | None = None) -> None:
 
 
 def celebrate_entry_saved() -> None:
-    """Pop-up cartoon Shaun thumbs-up, then auto-dismiss (like balloons)."""
-    media = SHAUN_CELEBRATE_GIF if SHAUN_CELEBRATE_GIF.exists() else SHAUN_CELEBRATE_STILL
+    """Pop-up still cartoon Shaun (thumbs-up), then auto-dismiss (like balloons)."""
+    media = SHAUN_CELEBRATE_STILL if SHAUN_CELEBRATE_STILL.exists() else SHAUN_CELEBRATE_FALLBACK
     if not media.exists():
         return
 
     raw = media.read_bytes()
     b64 = base64.b64encode(raw).decode("ascii")
-    mime = "image/gif" if media.suffix.lower() == ".gif" else "image/jpeg"
+    suffix = media.suffix.lower()
+    mime = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+    }.get(suffix, "image/png")
     duration_ms = CELEBRATION_MS
 
     # Inject into parent page so it covers the app and removes itself (balloons-style).
