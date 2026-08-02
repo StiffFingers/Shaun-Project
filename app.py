@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta
 
 import streamlit as st
 
+import auth
 import db
 from export import build_excel
 
@@ -507,6 +508,10 @@ def page_crew() -> None:
 def main() -> None:
     bootstrap()
 
+    # Gate the whole app behind email/password when secrets are configured
+    if not auth.require_login():
+        return
+
     st.title("🏗️ Construction Work Journal")
     st.caption("Daily site logs for your crew — then export everything to Excel.")
 
@@ -521,10 +526,12 @@ def main() -> None:
         index=0,
     )
 
+    auth.render_user_sidebar()
+
     st.sidebar.markdown("---")
     st.sidebar.markdown(
         f"**Today:** {date.today().strftime('%a, %b %d, %Y')}  \n"
-        f"Data saved locally in `data/journal.db`"
+        f"Shared cloud database (export Excel often)"
     )
 
     if page == "New entry":

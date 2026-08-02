@@ -25,6 +25,35 @@ streamlit run app.py
 
 Then open the URL Streamlit prints (usually http://localhost:8501).
 
+## Login (email / password)
+
+When deployed on Streamlit Cloud, only people listed in **Secrets** can sign in.
+
+1. Generate a password hash for each person:
+
+```bash
+python3 hash_password.py
+```
+
+2. In Streamlit Cloud: **Manage app → Settings → Secrets**, paste something like:
+
+```toml
+[auth]
+enabled = true
+
+[auth.credentials]
+"you@example.com" = "$2b$12$...."
+"coworker@example.com" = "$2b$12$...."
+
+[auth.names]
+"you@example.com" = "Your Name"
+"coworker@example.com" = "Coworker"
+```
+
+See `secrets.example.toml`. Passwords are stored as **hashes only** — never put plain passwords in Secrets or Git.
+
+Without `[auth]` secrets, the app runs open (handy for local testing).
+
 ## Suggested daily flow
 
 1. Open **Crew & projects** once and set up real worker names and job sites.
