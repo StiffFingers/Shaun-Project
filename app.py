@@ -52,7 +52,6 @@ def _id_to_name(options: dict[str, int], target_id: int) -> str | None:
 
 
 def page_new_entry() -> None:
-    st.subheader("New daily log entry")
     st.caption("Fill this out at the end of the shift — only a few fields are required.")
 
     workers = _worker_options()
@@ -512,9 +511,6 @@ def main() -> None:
     if not auth.require_login():
         return
 
-    st.title("🏗️ Construction Work Journal")
-    st.caption("Daily site logs for your crew — then export everything to Excel.")
-
     page = st.sidebar.radio(
         "Navigate",
         [
@@ -535,12 +531,20 @@ def main() -> None:
     )
 
     if page == "New entry":
+        st.title("In-Spec Team Work Journal Entry")
+        st.caption("Daily site logs for your crew — then export everything to Excel.")
         page_new_entry()
     elif page == "Journal":
+        st.title("🏗️ Construction Work Journal")
+        st.caption("Daily site logs for your crew — then export everything to Excel.")
         page_journal()
     elif page == "Excel export":
+        st.title("🏗️ Construction Work Journal")
+        st.caption("Daily site logs for your crew — then export everything to Excel.")
         page_export()
     else:
+        st.title("🏗️ Construction Work Journal")
+        st.caption("Daily site logs for your crew — then export everything to Excel.")
         page_crew()
 
 
