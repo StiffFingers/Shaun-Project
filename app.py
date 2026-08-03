@@ -15,11 +15,11 @@ from export import build_excel
 
 ASSETS_DIR = Path(__file__).parent / "assets"
 LOGO_PATH = ASSETS_DIR / "in-spec-logo.png"
-# 2-frame thumbs-up GIF; overlay lasts ~1.5s then auto-dismisses
-SHAUN_CELEBRATE_GIF = ASSETS_DIR / "shaun_celebrate.gif"
-SHAUN_CELEBRATE_FALLBACK = ASSETS_DIR / "shaun_celebrate_still.png"
+# Same thumbs-up art; pop-up always auto-dismisses in ~1.5s
+SHAUN_CELEBRATE_MEDIA = ASSETS_DIR / "shaun_celebrate_still.png"
+SHAUN_CELEBRATE_FALLBACK = ASSETS_DIR / "shaun_thumbs_up.jpg"
 
-# How long the pop-up stays on screen (ms)
+# Total on-screen time for the celebration overlay (milliseconds)
 CELEBRATION_MS = 1500
 
 st.set_page_config(
@@ -53,8 +53,8 @@ def render_header(title: str, caption: str | None = None) -> None:
 
 
 def celebrate_entry_saved() -> None:
-    """Pop-up 2-frame Shaun thumbs-up GIF (~1.5s), then auto-dismiss like balloons."""
-    media = SHAUN_CELEBRATE_GIF if SHAUN_CELEBRATE_GIF.exists() else SHAUN_CELEBRATE_FALLBACK
+    """Same Shaun thumbs-up pop-up; hard-capped at ~1.5 seconds then gone."""
+    media = SHAUN_CELEBRATE_MEDIA if SHAUN_CELEBRATE_MEDIA.exists() else SHAUN_CELEBRATE_FALLBACK
     if not media.exists():
         return
 
@@ -68,10 +68,8 @@ def celebrate_entry_saved() -> None:
         ".gif": "image/gif",
         ".webp": "image/webp",
     }.get(suffix, "image/png")
-    duration_ms = CELEBRATION_MS
 
     # Inject into parent page so it covers the app and removes itself (balloons-style).
-    # Falls back to an in-component overlay if parent access is blocked.
     components.html(
         f"""
 <!DOCTYPE html>
@@ -85,24 +83,33 @@ def celebrate_entry_saved() -> None:
 <body>
 <script>
 (function () {{
-  const DURATION = {duration_ms};
+  // v3 — short celebration (1.5s total)
+  const DURATION = 1500;
   const src = "data:{mime};base64,{b64}";
+  const STYLE_ID = "shaun-celebration-style-v3";
+  const OVERLAY_ID = "shaun-celebration-overlay-v3";
 
   function buildOverlay(doc) {{
-    const existing = doc.getElementById("shaun-celebration-overlay");
-    if (existing) existing.remove();
+    ["shaun-celebration-overlay", "shaun-celebration-overlay-v3"].forEach(function (id) {{
+      var el = doc.getElementById(id);
+      if (el) el.remove();
+    }});
+    ["shaun-celebration-style", "shaun-celebration-style-v3"].forEach(function (id) {{
+      var el = doc.getElementById(id);
+      if (el) el.remove();
+    }});
 
     const style = doc.createElement("style");
-    style.id = "shaun-celebration-style";
+    style.id = STYLE_ID;
     style.textContent = `
-      @keyframes shaunCelebInOut {{
-        0%   {{ opacity: 0; transform: scale(0.25) translateY(50px); }}
-        12%  {{ opacity: 1; transform: scale(1.08) translateY(0); }}
-        22%  {{ transform: scale(1) translateY(0); }}
-        78%  {{ opacity: 1; transform: scale(1) translateY(0); }}
-        100% {{ opacity: 0; transform: scale(0.9) translateY(-24px); }}
+      @keyframes shaunCelebInOutV3 {{
+        0%   {{ opacity: 0; transform: scale(0.35); }}
+        10%  {{ opacity: 1; transform: scale(1.05); }}
+        15%  {{ opacity: 1; transform: scale(1); }}
+        80%  {{ opacity: 1; transform: scale(1); }}
+        100% {{ opacity: 0; transform: scale(0.95); }}
       }}
-      #shaun-celebration-overlay {{
+      #${{OVERLAY_ID}} {{
         position: fixed !important;
         inset: 0 !important;
         z-index: 2147483646 !important;
@@ -111,18 +118,18 @@ def celebrate_entry_saved() -> None:
         align-items: center;
         justify-content: center;
         background: rgba(10, 25, 40, 0.42);
-        animation: shaunCelebInOut ${{DURATION}}ms ease-in-out forwards;
+        animation: shaunCelebInOutV3 ${{DURATION}}ms ease-out forwards;
         pointer-events: none !important;
         font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
       }}
-      #shaun-celebration-overlay img {{
+      #${{OVERLAY_ID}} img {{
         width: min(300px, 72vw);
         height: auto;
         border-radius: 18px;
         box-shadow: 0 16px 48px rgba(0,0,0,0.4);
         background: #fff;
       }}
-      #shaun-celebration-overlay .shaun-caption {{
+      #${{OVERLAY_ID}} .shaun-caption {{
         margin-top: 14px;
         color: #fff;
         font-size: 1.2rem;
@@ -131,13 +138,10 @@ def celebrate_entry_saved() -> None:
         text-align: center;
       }}
     `;
-
-    const oldStyle = doc.getElementById("shaun-celebration-style");
-    if (oldStyle) oldStyle.remove();
     doc.head.appendChild(style);
 
     const overlay = doc.createElement("div");
-    overlay.id = "shaun-celebration-overlay";
+    overlay.id = OVERLAY_ID;
     overlay.innerHTML = `
       <img src="${{src}}" alt="Shaun thumbs up" />
       <div class="shaun-caption">👍 Nice work — entry saved!</div>
@@ -145,11 +149,11 @@ def celebrate_entry_saved() -> None:
     doc.body.appendChild(overlay);
 
     setTimeout(function () {{
-      const el = doc.getElementById("shaun-celebration-overlay");
+      var el = doc.getElementById(OVERLAY_ID);
       if (el) el.remove();
-      const st = doc.getElementById("shaun-celebration-style");
+      var st = doc.getElementById(STYLE_ID);
       if (st) st.remove();
-    }}, DURATION + 80);
+    }}, DURATION + 50);
   }}
 
   try {{
