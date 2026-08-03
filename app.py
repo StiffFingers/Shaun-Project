@@ -15,12 +15,12 @@ from export import build_excel
 
 ASSETS_DIR = Path(__file__).parent / "assets"
 LOGO_PATH = ASSETS_DIR / "in-spec-logo.png"
-# Still image only (first frame of the old GIF) — pops up then disappears
-SHAUN_CELEBRATE_STILL = ASSETS_DIR / "shaun_celebrate_still.png"
-SHAUN_CELEBRATE_FALLBACK = ASSETS_DIR / "shaun_thumbs_up.jpg"
+# 2-frame thumbs-up GIF; overlay lasts ~1.5s then auto-dismisses
+SHAUN_CELEBRATE_GIF = ASSETS_DIR / "shaun_celebrate.gif"
+SHAUN_CELEBRATE_FALLBACK = ASSETS_DIR / "shaun_celebrate_still.png"
 
-# How long the pop-up stays on screen (ms), similar feel to balloons
-CELEBRATION_MS = 3200
+# How long the pop-up stays on screen (ms)
+CELEBRATION_MS = 1500
 
 st.set_page_config(
     page_title="In-Spec Team Work Journal",
@@ -53,8 +53,8 @@ def render_header(title: str, caption: str | None = None) -> None:
 
 
 def celebrate_entry_saved() -> None:
-    """Pop-up still cartoon Shaun (thumbs-up), then auto-dismiss (like balloons)."""
-    media = SHAUN_CELEBRATE_STILL if SHAUN_CELEBRATE_STILL.exists() else SHAUN_CELEBRATE_FALLBACK
+    """Pop-up 2-frame Shaun thumbs-up GIF (~1.5s), then auto-dismiss like balloons."""
+    media = SHAUN_CELEBRATE_GIF if SHAUN_CELEBRATE_GIF.exists() else SHAUN_CELEBRATE_FALLBACK
     if not media.exists():
         return
 
