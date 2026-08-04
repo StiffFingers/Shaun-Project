@@ -15,12 +15,12 @@ from export import build_excel
 
 ASSETS_DIR = Path(__file__).parent / "assets"
 LOGO_PATH = ASSETS_DIR / "in-spec-logo.png"
-# Same thumbs-up art; pop-up always auto-dismisses in ~1.5s
-SHAUN_CELEBRATE_MEDIA = ASSETS_DIR / "shaun_celebrate_still.png"
-SHAUN_CELEBRATE_FALLBACK = ASSETS_DIR / "shaun_thumbs_up.jpg"
+# 2-frame GIF: arms crossed → thumbs up; pop-up ~2s then gone
+SHAUN_CELEBRATE_MEDIA = ASSETS_DIR / "shaun_celebrate.gif"
+SHAUN_CELEBRATE_FALLBACK = ASSETS_DIR / "shaun_celebrate_still.png"
 
 # Total on-screen time for the celebration overlay (milliseconds)
-CELEBRATION_MS = 1500
+CELEBRATION_MS = 2000
 
 st.set_page_config(
     page_title="In-Spec Team Work Journal",
@@ -53,7 +53,7 @@ def render_header(title: str, caption: str | None = None) -> None:
 
 
 def celebrate_entry_saved() -> None:
-    """Same Shaun thumbs-up pop-up; hard-capped at ~1.5 seconds then gone."""
+    """2-frame GIF (arms crossed → thumbs up); hard-capped at ~2 seconds."""
     media = SHAUN_CELEBRATE_MEDIA if SHAUN_CELEBRATE_MEDIA.exists() else SHAUN_CELEBRATE_FALLBACK
     if not media.exists():
         return
@@ -83,18 +83,18 @@ def celebrate_entry_saved() -> None:
 <body>
 <script>
 (function () {{
-  // v3 — short celebration (1.5s total)
-  const DURATION = 1500;
+  // v4 — 2s celebration, 2-frame GIF
+  const DURATION = 2000;
   const src = "data:{mime};base64,{b64}";
-  const STYLE_ID = "shaun-celebration-style-v3";
-  const OVERLAY_ID = "shaun-celebration-overlay-v3";
+  const STYLE_ID = "shaun-celebration-style-v4";
+  const OVERLAY_ID = "shaun-celebration-overlay-v4";
 
   function buildOverlay(doc) {{
-    ["shaun-celebration-overlay", "shaun-celebration-overlay-v3"].forEach(function (id) {{
+    ["shaun-celebration-overlay", "shaun-celebration-overlay-v3", "shaun-celebration-overlay-v4"].forEach(function (id) {{
       var el = doc.getElementById(id);
       if (el) el.remove();
     }});
-    ["shaun-celebration-style", "shaun-celebration-style-v3"].forEach(function (id) {{
+    ["shaun-celebration-style", "shaun-celebration-style-v3", "shaun-celebration-style-v4"].forEach(function (id) {{
       var el = doc.getElementById(id);
       if (el) el.remove();
     }});
@@ -102,7 +102,7 @@ def celebrate_entry_saved() -> None:
     const style = doc.createElement("style");
     style.id = STYLE_ID;
     style.textContent = `
-      @keyframes shaunCelebInOutV3 {{
+      @keyframes shaunCelebInOutV4 {{
         0%   {{ opacity: 0; transform: scale(0.35); }}
         10%  {{ opacity: 1; transform: scale(1.05); }}
         15%  {{ opacity: 1; transform: scale(1); }}
@@ -118,7 +118,7 @@ def celebrate_entry_saved() -> None:
         align-items: center;
         justify-content: center;
         background: rgba(10, 25, 40, 0.42);
-        animation: shaunCelebInOutV3 ${{DURATION}}ms ease-out forwards;
+        animation: shaunCelebInOutV4 ${{DURATION}}ms ease-out forwards;
         pointer-events: none !important;
         font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
       }}
