@@ -364,8 +364,13 @@ def page_new_entry() -> None:
         )
         for name in worker_names:
             wid = workers[name]
-            st.markdown(f"**{name}**")
-            c1, c2, c3, c4 = st.columns([1.2, 1.2, 1.2, 1.0])
+            # Name on same row as start / finish / break / total
+            ncol, c1, c2, c3, c4 = st.columns([1.6, 1.1, 1.1, 1.1, 0.9])
+            with ncol:
+                st.markdown(
+                    f"<div style='padding-top:1.65rem;font-weight:600;'>{name}</div>",
+                    unsafe_allow_html=True,
+                )
             with c1:
                 start = st.selectbox(
                     "Start time",
@@ -388,7 +393,7 @@ def page_new_entry() -> None:
             total = _calc_worked_hours(start, finish, brk)
             with c4:
                 st.markdown(
-                    f"<div style='padding-top:1.6rem;font-weight:600;'>"
+                    f"<div style='padding-top:1.65rem;font-weight:600;'>"
                     f"Total: {total:g} hr</div>",
                     unsafe_allow_html=True,
                 )
@@ -417,8 +422,8 @@ def page_new_entry() -> None:
         key=f"{pfx}visitors",
     )
     materials_notes = st.text_area(
-        "Materials",
-        placeholder="Deliveries, materials used, shortages…",
+        "Equipment/Materials",
+        placeholder="Equipment and materials used, deliveries, shortages…",
         height=80,
         key=f"{pfx}materials",
     )
@@ -654,7 +659,7 @@ def page_journal() -> None:
                     f"**Visitor / Subcontractors:** {journal['crew_notes']}"
                 )
             if journal.get("materials_notes"):
-                details.append(f"**Materials:** {journal['materials_notes']}")
+                details.append(f"**Equipment/Materials:** {journal['materials_notes']}")
             if journal.get("issues_delays"):
                 details.append(f"**Issues:** {journal['issues_delays']}")
             if journal.get("action_follow_up"):
@@ -829,7 +834,7 @@ def _edit_entry_form(
             key=f"ed_crew_{entry['id']}",
         )
         materials_notes = st.text_area(
-            "Materials",
+            "Equipment/Materials",
             value=entry["materials_notes"] or "",
             height=70,
             key=f"ed_mat_{entry['id']}",

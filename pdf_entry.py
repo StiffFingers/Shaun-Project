@@ -364,7 +364,7 @@ def build_entry_pdf(entry: dict[str, Any]) -> bytes:
     story.append(_label(styles, "Visitor / Subcontractors"))
     story.append(_value_box(styles, entry.get("crew_notes") or "—"))
 
-    story.append(_label(styles, "Materials"))
+    story.append(_label(styles, "Equipment/Materials"))
     story.append(_value_box(styles, entry.get("materials_notes") or "—"))
 
     story.append(_label(styles, "Issues / delays"))

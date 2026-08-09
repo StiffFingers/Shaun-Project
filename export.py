@@ -25,7 +25,7 @@ COLUMNS = [
     ("work_done", "Work Performed"),
     ("safety_notes", "Health, Safety, Environment"),
     ("crew_notes", "Visitor / Subcontractors"),
-    ("materials_notes", "Materials"),
+    ("materials_notes", "Equipment/Materials"),
     ("issues_delays", "Issues / Delays"),
     ("action_follow_up", "Action / Follow up Items"),
     ("created_at", "Logged At"),
