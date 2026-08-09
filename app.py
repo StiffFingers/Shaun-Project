@@ -356,7 +356,6 @@ def page_new_entry() -> None:
             key=f"{pfx}temp",
         )
 
-    st.markdown("##### Crew times")
     with st.container(border=True):
         st.caption(
             "Set start, finish, and lunch/break (15‑minute steps) for each person. "

@@ -149,12 +149,15 @@ def _two_col(styles, left_label, left_val, right_label, right_val, left_req=Fals
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
     ]
+    # Labels as plain paragraphs so spaceBefore matches full-width fields
+    left_lab = _label(styles, left_label, left_req)
+    right_lab = _label(styles, right_label, right_req)
     # left | gap | right  → exactly CONTENT_W wide, left column starts at 0
     data = [
         [
-            _label(styles, left_label, left_req),
+            left_lab,
             "",
-            _label(styles, right_label, right_req),
+            right_lab,
         ],
         [
             _value_box(styles, left_val, width=HALF_W),
@@ -212,7 +215,7 @@ def _people_rows(journal: dict[str, Any]) -> list[list[str]]:
             except (TypeError, ValueError):
                 brk_s = "—"
             try:
-                hrs = f"{float(p.get('hours_worked') or 0):g} h"
+                hrs = f"{float(p.get('hours_worked') or 0):g} hr"
             except (TypeError, ValueError):
                 hrs = str(p.get("hours_worked") or "—")
             rows.append([name, start, finish, brk_s, hrs])
@@ -224,7 +227,7 @@ def _people_rows(journal: dict[str, Any]) -> list[list[str]]:
             journal.get("start_time") or "—",
             journal.get("finish_time") or "—",
             f"{int(journal.get('break_minutes') or 0)} min",
-            f"{_fmt_hours(journal)} h",
+            f"{_fmt_hours(journal)} hr",
         ]
     ]
 
@@ -279,6 +282,8 @@ def build_entry_pdf(entry: dict[str, Any]) -> bytes:
     story.append(_label(styles, "Log entry by", required=True))
     story.append(_value_box(styles, entry.get("logged_by_name") or "—"))
 
+    # Same vertical gap as full-width fields before Weather / Temperature
+    story.append(Spacer(1, 4))
     story.append(
         _two_col(
             styles,
@@ -292,7 +297,7 @@ def build_entry_pdf(entry: dict[str, Any]) -> bytes:
     )
 
     # Hours by person — all people on this journal
-    story.append(Spacer(1, 6))
+    story.append(Spacer(1, 8))
     story.append(Paragraph("Hours", styles["label"]))
     header = [
         Paragraph("<b>Name</b>", styles["small"]),
