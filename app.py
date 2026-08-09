@@ -235,7 +235,10 @@ def _id_to_name(options: dict[str, int], target_id: int) -> str | None:
 
 
 def page_new_entry() -> None:
-    st.caption("Fill this out at the end of the shift — only a few fields are required.")
+    st.caption(
+        "Log who is filling this out, then enter hours for each person on site. "
+        "Only people with hours above 0 are saved."
+    )
 
     workers = _worker_options()
     projects = _project_options()
@@ -247,35 +250,48 @@ def page_new_entry() -> None:
         st.warning("Add at least one project in **Crew & Projects** before logging.")
         return
 
+    worker_names = list(workers.keys())
+
     with st.form("new_entry", clear_on_submit=True):
-        c1, c2, c3 = st.columns(3)
+        c1, c2 = st.columns(2)
         with c1:
             entry_date = st.date_input("Date", value=date.today())
         with c2:
-            worker_name = st.selectbox("Worker", list(workers.keys()))
-        with c3:
             project_name = st.selectbox("Project / job site", list(projects.keys()))
 
-        c4, c5 = st.columns(2)
-        with c4:
-            weather = st.selectbox("Weather", WEATHER_OPTIONS)
-        with c5:
-            hours = st.number_input(
-                "Hours worked",
-                min_value=0.0,
-                max_value=24.0,
-                value=8.0,
-                step=0.25,
-            )
+        logged_by_name = st.selectbox(
+            "Log entry by",
+            worker_names,
+            help="Who is filling out this log (the person submitting).",
+        )
+        weather = st.selectbox("Weather", WEATHER_OPTIONS)
+
+        st.markdown("#### Hours by person")
+        st.caption("Enter hours for each active crew member who worked. Leave at 0 if they did not work.")
+        hours_inputs: dict[str, float] = {}
+        # Two columns of name + hours for easier scanning
+        names = worker_names
+        for i in range(0, len(names), 2):
+            cols = st.columns(2)
+            for col, name in zip(cols, names[i : i + 2]):
+                with col:
+                    hours_inputs[name] = st.number_input(
+                        name,
+                        min_value=0.0,
+                        max_value=24.0,
+                        value=0.0,
+                        step=0.25,
+                        key=f"new_hrs_{workers[name]}",
+                    )
 
         work_done = st.text_area(
             "Work performed *",
-            placeholder="What did you do today? e.g. Formed footings on north wall, poured slab section B…",
+            placeholder="What did the crew do today? e.g. Formed footings on north wall, poured slab section B…",
             height=120,
         )
         crew_notes = st.text_area(
             "Crew notes",
-            placeholder="Who was on site, subcontractors, headcount…",
+            placeholder="Subcontractors, visitors, extra headcount notes…",
             height=80,
         )
         materials_notes = st.text_area(
@@ -300,19 +316,41 @@ def page_new_entry() -> None:
         if not work_done.strip():
             st.error("Please describe the work performed.")
             return
-        entry_id = db.add_entry(
-            entry_date=entry_date,
-            worker_id=workers[worker_name],
-            project_id=projects[project_name],
-            weather=weather,
-            hours_worked=hours,
-            work_done=work_done,
-            crew_notes=crew_notes,
-            materials_notes=materials_notes,
-            issues_delays=issues,
-            safety_notes=safety,
+        hours_by_id = {
+            workers[name]: float(hrs or 0) for name, hrs in hours_inputs.items()
+        }
+        people_with_hours = [n for n, h in hours_inputs.items() if float(h or 0) > 0]
+        if not people_with_hours:
+            st.error("Enter hours greater than 0 for at least one person.")
+            return
+        try:
+            ids = db.add_entries_for_crew(
+                entry_date=entry_date,
+                project_id=projects[project_name],
+                hours_by_worker_id=hours_by_id,
+                logged_by_worker_id=workers[logged_by_name],
+                weather=weather,
+                work_done=work_done,
+                crew_notes=crew_notes,
+                materials_notes=materials_notes,
+                issues_delays=issues,
+                safety_notes=safety,
+            )
+        except Exception as exc:
+            st.error(f"Could not save: {exc}")
+            st.info(
+                "If this mentions a missing column, run the SQL in "
+                "`supabase_migration_logged_by.sql` in your Supabase SQL Editor, then try again."
+            )
+            return
+
+        detail = ", ".join(
+            f"{n} ({hours_inputs[n]:g}h)" for n in people_with_hours
         )
-        st.success(f"Saved entry #{entry_id} for {worker_name} on {entry_date.isoformat()}.")
+        st.success(
+            f"Saved {len(ids)} log line(s) for {entry_date.isoformat()} "
+            f"(logged by {logged_by_name}): {detail}."
+        )
         celebrate_entry_saved()
 
 
@@ -373,10 +411,13 @@ def page_journal() -> None:
         with st.container(border=True):
             top_l, top_r = st.columns([4, 1])
             with top_l:
+                logged_by = entry.get("logged_by_name") or ""
+                logged_bit = f" · logged by {logged_by}" if logged_by else ""
                 st.markdown(
                     f"**#{entry['id']} · {entry['entry_date']}** — "
                     f"{entry['worker_name']} @ **{entry['project_name']}** · "
                     f"{entry['hours_worked']}h · {entry['weather'] or '—'}"
+                    f"{logged_bit}"
                 )
             with top_r:
                 action = st.selectbox(

@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS entries (
     entry_date TEXT NOT NULL,
     worker_id INTEGER NOT NULL,
     project_id INTEGER NOT NULL,
+    logged_by_worker_id INTEGER,
     weather TEXT NOT NULL DEFAULT '',
     hours_worked REAL NOT NULL DEFAULT 0,
     work_done TEXT NOT NULL DEFAULT '',
@@ -44,7 +45,8 @@ CREATE TABLE IF NOT EXISTS entries (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (worker_id) REFERENCES workers(id),
-    FOREIGN KEY (project_id) REFERENCES projects(id)
+    FOREIGN KEY (project_id) REFERENCES projects(id),
+    FOREIGN KEY (logged_by_worker_id) REFERENCES workers(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_entries_date ON entries(entry_date);
@@ -203,12 +205,18 @@ def _normalize_project(row: dict[str, Any]) -> dict[str, Any]:
 
 def _flatten_entry(row: dict[str, Any]) -> dict[str, Any]:
     out = dict(row)
-    workers = out.pop("workers", None) or {}
-    projects = out.pop("projects", None) or {}
+    # PostgREST embed shapes (default or aliased)
+    workers = out.pop("workers", None) or out.pop("worker", None) or {}
+    projects = out.pop("projects", None) or out.pop("project", None) or {}
+    logged_by = out.pop("logged_by", None) or {}
     if isinstance(workers, dict):
         out["worker_name"] = workers.get("name", "")
     if isinstance(projects, dict):
         out["project_name"] = projects.get("name", "")
+    if isinstance(logged_by, dict):
+        out["logged_by_name"] = logged_by.get("name") or ""
+    else:
+        out.setdefault("logged_by_name", "")
     if out.get("entry_date") is not None:
         out["entry_date"] = str(out["entry_date"])[:10]
     for key in ("created_at", "updated_at"):
@@ -254,10 +262,19 @@ def get_conn() -> Generator[sqlite3.Connection, None, None]:
 
 def init_db() -> None:
     if using_supabase():
-        # Schema is created once via supabase_schema.sql in the Supabase dashboard.
+        # Schema / migrations are applied in the Supabase SQL Editor.
         return
     with get_conn() as conn:
         conn.executescript(SCHEMA)
+        cols = {
+            r[1]
+            for r in conn.execute("PRAGMA table_info(entries)").fetchall()
+        }
+        if "logged_by_worker_id" not in cols:
+            conn.execute(
+                "ALTER TABLE entries ADD COLUMN logged_by_worker_id INTEGER "
+                "REFERENCES workers(id)"
+            )
 
 
 def _table_is_empty(table: str) -> bool:
@@ -496,9 +513,10 @@ def add_entry(
     materials_notes: str = "",
     issues_delays: str = "",
     safety_notes: str = "",
+    logged_by_worker_id: Optional[int] = None,
 ) -> int:
     entry_date_s = _as_date_str(entry_date)
-    payload = {
+    payload: dict[str, Any] = {
         "entry_date": entry_date_s,
         "worker_id": int(worker_id),
         "project_id": int(project_id),
@@ -510,6 +528,8 @@ def add_entry(
         "issues_delays": issues_delays.strip(),
         "safety_notes": safety_notes.strip(),
     }
+    if logged_by_worker_id is not None:
+        payload["logged_by_worker_id"] = int(logged_by_worker_id)
 
     if using_supabase():
         now = datetime.utcnow().isoformat() + "Z"
@@ -525,15 +545,16 @@ def add_entry(
         cur = conn.execute(
             """
             INSERT INTO entries (
-                entry_date, worker_id, project_id, weather, hours_worked,
+                entry_date, worker_id, project_id, logged_by_worker_id, weather, hours_worked,
                 work_done, crew_notes, materials_notes, issues_delays,
                 safety_notes, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 entry_date_s,
                 worker_id,
                 project_id,
+                int(logged_by_worker_id) if logged_by_worker_id is not None else None,
                 payload["weather"],
                 payload["hours_worked"],
                 payload["work_done"],
@@ -546,6 +567,45 @@ def add_entry(
             ),
         )
         return int(cur.lastrowid)
+
+
+def add_entries_for_crew(
+    entry_date: date | str,
+    project_id: int,
+    hours_by_worker_id: dict[int, float],
+    logged_by_worker_id: int,
+    weather: str = "",
+    work_done: str = "",
+    crew_notes: str = "",
+    materials_notes: str = "",
+    issues_delays: str = "",
+    safety_notes: str = "",
+) -> list[int]:
+    """Create one journal row per worker with hours > 0. Returns new entry ids."""
+    ids: list[int] = []
+    for worker_id, hours in hours_by_worker_id.items():
+        try:
+            h = float(hours or 0)
+        except (TypeError, ValueError):
+            h = 0.0
+        if h <= 0:
+            continue
+        ids.append(
+            add_entry(
+                entry_date=entry_date,
+                worker_id=int(worker_id),
+                project_id=project_id,
+                weather=weather,
+                hours_worked=h,
+                work_done=work_done,
+                crew_notes=crew_notes,
+                materials_notes=materials_notes,
+                issues_delays=issues_delays,
+                safety_notes=safety_notes,
+                logged_by_worker_id=logged_by_worker_id,
+            )
+        )
+    return ids
 
 
 def update_entry(
@@ -618,16 +678,35 @@ def delete_entry(entry_id: int) -> None:
         conn.execute("DELETE FROM entries WHERE id = ?", (entry_id,))
 
 
+_ENTRY_SELECT_SB = (
+    "*, "
+    "worker:workers!worker_id(name), "
+    "logged_by:workers!logged_by_worker_id(name), "
+    "project:projects!project_id(name)"
+)
+
+
 def get_entry(entry_id: int) -> Optional[dict[str, Any]]:
     if using_supabase():
-        resp = (
-            _sb()
-            .table("entries")
-            .select("*, workers(name), projects(name)")
-            .eq("id", entry_id)
-            .limit(1)
-            .execute()
-        )
+        try:
+            resp = (
+                _sb()
+                .table("entries")
+                .select(_ENTRY_SELECT_SB)
+                .eq("id", entry_id)
+                .limit(1)
+                .execute()
+            )
+        except Exception:
+            # Fallback if FK embed names differ before migration
+            resp = (
+                _sb()
+                .table("entries")
+                .select("*, workers(name), projects(name)")
+                .eq("id", entry_id)
+                .limit(1)
+                .execute()
+            )
         if not resp.data:
             return None
         return _flatten_entry(resp.data[0])
@@ -635,10 +714,12 @@ def get_entry(entry_id: int) -> Optional[dict[str, Any]]:
     with get_conn() as conn:
         row = conn.execute(
             """
-            SELECT e.*, w.name AS worker_name, p.name AS project_name
+            SELECT e.*, w.name AS worker_name, p.name AS project_name,
+                   lb.name AS logged_by_name
             FROM entries e
             JOIN workers w ON w.id = e.worker_id
             JOIN projects p ON p.id = e.project_id
+            LEFT JOIN workers lb ON lb.id = e.logged_by_worker_id
             WHERE e.id = ?
             """,
             (entry_id,),
@@ -653,29 +734,50 @@ def list_entries(
     project_id: Optional[int] = None,
 ) -> list[dict[str, Any]]:
     if using_supabase():
-        q = (
-            _sb()
-            .table("entries")
-            .select("*, workers(name), projects(name)")
-            .order("entry_date", desc=True)
-            .order("id", desc=True)
-        )
-        if date_from:
-            q = q.gte("entry_date", date_from)
-        if date_to:
-            q = q.lte("entry_date", date_to)
-        if worker_id:
-            q = q.eq("worker_id", worker_id)
-        if project_id:
-            q = q.eq("project_id", project_id)
-        resp = q.execute()
-        return [_flatten_entry(r) for r in (resp.data or [])]
+        try:
+            q = (
+                _sb()
+                .table("entries")
+                .select(_ENTRY_SELECT_SB)
+                .order("entry_date", desc=True)
+                .order("id", desc=True)
+            )
+            if date_from:
+                q = q.gte("entry_date", date_from)
+            if date_to:
+                q = q.lte("entry_date", date_to)
+            if worker_id:
+                q = q.eq("worker_id", worker_id)
+            if project_id:
+                q = q.eq("project_id", project_id)
+            resp = q.execute()
+            return [_flatten_entry(r) for r in (resp.data or [])]
+        except Exception:
+            q = (
+                _sb()
+                .table("entries")
+                .select("*, workers(name), projects(name)")
+                .order("entry_date", desc=True)
+                .order("id", desc=True)
+            )
+            if date_from:
+                q = q.gte("entry_date", date_from)
+            if date_to:
+                q = q.lte("entry_date", date_to)
+            if worker_id:
+                q = q.eq("worker_id", worker_id)
+            if project_id:
+                q = q.eq("project_id", project_id)
+            resp = q.execute()
+            return [_flatten_entry(r) for r in (resp.data or [])]
 
     query = """
-        SELECT e.*, w.name AS worker_name, p.name AS project_name
+        SELECT e.*, w.name AS worker_name, p.name AS project_name,
+               lb.name AS logged_by_name
         FROM entries e
         JOIN workers w ON w.id = e.worker_id
         JOIN projects p ON p.id = e.project_id
+        LEFT JOIN workers lb ON lb.id = e.logged_by_worker_id
         WHERE 1=1
     """
     params: list[Any] = []

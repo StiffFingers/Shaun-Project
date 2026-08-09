@@ -14,9 +14,10 @@ from openpyxl.utils import get_column_letter
 COLUMNS = [
     ("entry_date", "Date"),
     ("worker_name", "Worker"),
+    ("hours_worked", "Hours"),
+    ("logged_by_name", "Log Entry By"),
     ("project_name", "Project / Job Site"),
     ("weather", "Weather"),
-    ("hours_worked", "Hours"),
     ("work_done", "Work Performed"),
     ("crew_notes", "Crew Notes"),
     ("materials_notes", "Materials"),
