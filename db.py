@@ -55,7 +55,6 @@ CREATE TABLE IF NOT EXISTS entries (
 CREATE INDEX IF NOT EXISTS idx_entries_date ON entries(entry_date);
 CREATE INDEX IF NOT EXISTS idx_entries_worker ON entries(worker_id);
 CREATE INDEX IF NOT EXISTS idx_entries_project ON entries(project_id);
-CREATE INDEX IF NOT EXISTS idx_entries_group ON entries(entry_group_id);
 """
 
 
