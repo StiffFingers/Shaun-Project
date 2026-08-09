@@ -406,15 +406,14 @@ def build_entry_pdf(entry: dict[str, Any]) -> bytes:
 
 
 def entry_pdf_filename(entry: dict[str, Any]) -> str:
-    """Filename: Job {Job site}-{Date}.pdf  e.g. Job Main Site A-Aug 09, 2026.pdf"""
+    """Filename: Job {Job site}_{Date}.pdf  e.g. Job Main Site A_Aug 09, 2026.pdf"""
     site = str(entry.get("project_name") or "Site").strip() or "Site"
     day = format_display_date(entry.get("entry_date"))
     if day == "—":
         day = "Unknown date"
-    # Allow letters, numbers, spaces, comma, hyphen; replace path-unsafe chars
-    raw = f"Job {site}-{day}.pdf"
+    # Job {site}_{date}.pdf — replace path-unsafe chars
+    raw = f"Job {site}_{day}.pdf"
     safe = "".join(c if c not in '\\/:*?"<>|' else "-" for c in raw)
-    # Collapse repeated spaces
     while "  " in safe:
         safe = safe.replace("  ", " ")
     return safe.strip()
