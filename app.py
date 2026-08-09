@@ -276,25 +276,30 @@ def page_new_entry() -> None:
         )
         weather = st.selectbox("Weather", WEATHER_OPTIONS)
 
-        st.caption("Enter hours for each active crew member who worked. Leave at 0 if they did not work.")
         hours_inputs: dict[str, float] = {}
-        for name in worker_names:
-            left, right = st.columns([3, 1])
-            with left:
-                st.markdown(
-                    f"<div style='padding-top:0.55rem;font-weight:500;'>{name}</div>",
-                    unsafe_allow_html=True,
-                )
-            with right:
-                hours_inputs[name] = st.number_input(
-                    f"Hours — {name}",
-                    min_value=0.0,
-                    max_value=24.0,
-                    value=0.0,
-                    step=0.25,
-                    key=f"new_hrs_{workers[name]}",
-                    label_visibility="collapsed",
-                )
+        with st.container(border=True):
+            st.caption(
+                "Enter hours for each active crew member who worked. "
+                "Leave at 0 if they did not work."
+            )
+            for name in worker_names:
+                # Name + hours close together (not stretched full width)
+                left, right, _pad = st.columns([2.2, 1.1, 2.7])
+                with left:
+                    st.markdown(
+                        f"<div style='padding-top:0.55rem;font-weight:500;'>{name}</div>",
+                        unsafe_allow_html=True,
+                    )
+                with right:
+                    hours_inputs[name] = st.number_input(
+                        f"Hours — {name}",
+                        min_value=0.0,
+                        max_value=24.0,
+                        value=0.0,
+                        step=0.25,
+                        key=f"new_hrs_{workers[name]}",
+                        label_visibility="collapsed",
+                    )
 
         work_done = st.text_area(
             "Work performed *",
