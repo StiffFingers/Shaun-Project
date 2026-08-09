@@ -276,22 +276,25 @@ def page_new_entry() -> None:
         )
         weather = st.selectbox("Weather", WEATHER_OPTIONS)
 
-        st.markdown("#### Hours by person")
         st.caption("Enter hours for each active crew member who worked. Leave at 0 if they did not work.")
         hours_inputs: dict[str, float] = {}
-        names = worker_names
-        for i in range(0, len(names), 2):
-            cols = st.columns(2)
-            for col, name in zip(cols, names[i : i + 2]):
-                with col:
-                    hours_inputs[name] = st.number_input(
-                        name,
-                        min_value=0.0,
-                        max_value=24.0,
-                        value=0.0,
-                        step=0.25,
-                        key=f"new_hrs_{workers[name]}",
-                    )
+        for name in worker_names:
+            left, right = st.columns([3, 1])
+            with left:
+                st.markdown(
+                    f"<div style='padding-top:0.55rem;font-weight:500;'>{name}</div>",
+                    unsafe_allow_html=True,
+                )
+            with right:
+                hours_inputs[name] = st.number_input(
+                    f"Hours — {name}",
+                    min_value=0.0,
+                    max_value=24.0,
+                    value=0.0,
+                    step=0.25,
+                    key=f"new_hrs_{workers[name]}",
+                    label_visibility="collapsed",
+                )
 
         work_done = st.text_area(
             "Work performed *",
@@ -304,8 +307,8 @@ def page_new_entry() -> None:
             height=80,
         )
         crew_notes = st.text_area(
-            "Crew notes",
-            placeholder="Subcontractors, visitors, extra headcount notes…",
+            "Visitor / Subcontractors",
+            placeholder="Visitors, subcontractors, extra headcount notes…",
             height=80,
         )
         materials_notes = st.text_area(
@@ -453,7 +456,7 @@ def page_journal() -> None:
             if entry.get("safety_notes"):
                 details.append(f"**Health, Safety, Environment:** {entry['safety_notes']}")
             if entry.get("crew_notes"):
-                details.append(f"**Crew:** {entry['crew_notes']}")
+                details.append(f"**Visitor / Subcontractors:** {entry['crew_notes']}")
             if entry.get("materials_notes"):
                 details.append(f"**Materials:** {entry['materials_notes']}")
             if entry.get("issues_delays"):
@@ -562,7 +565,7 @@ def _edit_entry_form(
             key=f"ed_safe_{entry['id']}",
         )
         crew_notes = st.text_area(
-            "Crew notes",
+            "Visitor / Subcontractors",
             value=entry["crew_notes"] or "",
             height=70,
             key=f"ed_crew_{entry['id']}",

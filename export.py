@@ -20,7 +20,7 @@ COLUMNS = [
     ("weather", "Weather"),
     ("work_done", "Work Performed"),
     ("safety_notes", "Health, Safety, Environment"),
-    ("crew_notes", "Crew Notes"),
+    ("crew_notes", "Visitor / Subcontractors"),
     ("materials_notes", "Materials"),
     ("issues_delays", "Issues / Delays"),
     ("action_follow_up", "Action / Follow up Items"),
