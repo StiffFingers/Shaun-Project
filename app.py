@@ -32,11 +32,13 @@ st.set_page_config(
 
 TEMPERATURE_C_OPTIONS = list(range(-5, 41))  # -5°C through 40°C
 
-# 15-minute clock options; "—" means person not on site that day
+# 15-minute clock options from 6:00 AM through midnight; "—" = not on site
 TIME_BLANK = "—"
 TIME_OPTIONS = [TIME_BLANK] + [
-    f"{h:02d}:{m:02d}" for h in range(0, 24) for m in (0, 15, 30, 45)
-]
+    f"{h:02d}:{m:02d}"
+    for h in range(6, 24)
+    for m in (0, 15, 30, 45)
+] + ["00:00"]  # midnight as end-of-day finish
 # Lunch / break length in minutes (0–4 hours)
 BREAK_MINUTE_OPTIONS = list(range(0, 241, 15))
 
