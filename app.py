@@ -520,11 +520,9 @@ def page_journal() -> None:
             f"{len(selected_entries)} journal(s) selected — one PDF per journal inside the ZIP."
         )
 
-    st.markdown("#### Export selected")
     st.caption(
-        "Check one or more entries below, then use the download button above "
-        "for a ZIP with **one PDF per journal** (same layout as the New Entry form). "
-        "Each entry also has its own **Export PDF** button."
+        "Check one or more entries, then use the download button above "
+        "for a ZIP with **one PDF per journal**. Each entry also has its own **Export PDF** button."
     )
 
     for entry in entries:
