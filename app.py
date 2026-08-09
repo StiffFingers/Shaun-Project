@@ -325,10 +325,12 @@ def page_new_entry() -> None:
                         label_visibility="collapsed",
                     )
 
+        _req_label("Work performed")
         work_done = st.text_area(
             "Work performed",
             placeholder="Detail of today jobsite activities",
             height=120,
+            label_visibility="collapsed",
         )
         _req_label("Health, Safety, Environment")
         safety = st.text_area(
@@ -374,6 +376,8 @@ def page_new_entry() -> None:
             missing.append("Temperature")
         if not (safety or "").strip():
             missing.append("Health, Safety, Environment")
+        if not (work_done or "").strip():
+            missing.append("Work performed")
         if missing:
             st.error(
                 "Please fill in all required fields: " + ", ".join(missing) + "."
