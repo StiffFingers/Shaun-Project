@@ -223,10 +223,21 @@ def _id_to_name(options: dict[str, int], target_id: int) -> str | None:
     return None
 
 
+def _req_label(text: str) -> None:
+    """Field label with a red bold required asterisk."""
+    st.markdown(
+        f'<div style="font-size:0.875rem;margin-bottom:0.15rem;">'
+        f'{text} <span style="color:#c62828;font-weight:700;">*</span>'
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def page_new_entry() -> None:
     st.caption(
         "Log who is filling this out, then enter hours for each person on site. "
-        "Only people with hours above 0 are saved. Type the job site name freely."
+        "Only people with hours above 0 are saved. Type the job site name freely. "
+        "Fields marked with a red * are required."
     )
 
     workers = _worker_options()
@@ -241,11 +252,18 @@ def page_new_entry() -> None:
     with st.form("new_entry", clear_on_submit=True):
         c1, c2 = st.columns(2)
         with c1:
-            entry_date = st.date_input("Date", value=date.today())
+            _req_label("Date")
+            entry_date = st.date_input(
+                "Date",
+                value=date.today(),
+                label_visibility="collapsed",
+            )
         with c2:
+            _req_label("Job site")
             project_name = st.text_input(
-                "Job site *",
+                "Job site",
                 placeholder="Type job site name…",
+                label_visibility="collapsed",
                 help=(
                     "Type the job site. Matching names reuse an existing site; "
                     "a new name creates one automatically."
@@ -258,22 +276,28 @@ def page_new_entry() -> None:
                 ),
             )
 
+        _req_label("Log entry by")
         logged_by_name = st.selectbox(
             "Log entry by",
             worker_names,
+            label_visibility="collapsed",
             help="Who is filling out this log (the person submitting).",
         )
         wcol, tcol = st.columns(2)
         with wcol:
+            _req_label("Weather")
             weather = st.text_input(
                 "Weather",
                 placeholder="e.g. Sunny, light rain, overcast…",
+                label_visibility="collapsed",
             )
         with tcol:
+            _req_label("Temperature (°C)")
             temperature_c = st.selectbox(
                 "Temperature (°C)",
                 TEMPERATURE_C_OPTIONS,
                 index=TEMPERATURE_C_OPTIONS.index(15),
+                label_visibility="collapsed",
             )
 
         hours_inputs: dict[str, float] = {}
@@ -302,14 +326,16 @@ def page_new_entry() -> None:
                     )
 
         work_done = st.text_area(
-            "Work performed *",
+            "Work performed",
             placeholder="Detail of today jobsite activities",
             height=120,
         )
+        _req_label("Health, Safety, Environment")
         safety = st.text_area(
             "Health, Safety, Environment",
             placeholder="Incidents, toolbox talk topics, PPE used",
             height=80,
+            label_visibility="collapsed",
         )
         crew_notes = st.text_area(
             "Visitor / Subcontractors",
@@ -335,11 +361,23 @@ def page_new_entry() -> None:
         submitted = st.form_submit_button("Save entry", type="primary", use_container_width=True)
 
     if submitted:
+        missing: list[str] = []
+        if entry_date is None:
+            missing.append("Date")
         if not (project_name or "").strip():
-            st.error("Please enter a job site.")
-            return
-        if not work_done.strip():
-            st.error("Please describe the work performed.")
+            missing.append("Job site")
+        if not logged_by_name:
+            missing.append("Log entry by")
+        if not (weather or "").strip():
+            missing.append("Weather")
+        if temperature_c is None:
+            missing.append("Temperature")
+        if not (safety or "").strip():
+            missing.append("Health, Safety, Environment")
+        if missing:
+            st.error(
+                "Please fill in all required fields: " + ", ".join(missing) + "."
+            )
             return
         hours_by_id = {
             workers[name]: float(hrs or 0) for name, hrs in hours_inputs.items()
