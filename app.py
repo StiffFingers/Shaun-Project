@@ -337,9 +337,14 @@ def page_new_entry() -> None:
         )
 
     _req_label("Log entry by")
+    _default_logger = "Shaun Hellmich"
+    _log_index = (
+        worker_names.index(_default_logger) if _default_logger in worker_names else 0
+    )
     logged_by_name = st.selectbox(
         "Log entry by",
         worker_names,
+        index=_log_index,
         label_visibility="collapsed",
         key=f"{pfx}logged_by",
         help="Who is filling out this log (the person submitting).",
