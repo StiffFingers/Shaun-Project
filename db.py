@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS entries (
     worker_id INTEGER NOT NULL,
     project_id INTEGER NOT NULL,
     logged_by_worker_id INTEGER,
+    entry_group_id TEXT,
     weather TEXT NOT NULL DEFAULT '',
     temperature_c REAL,
     hours_worked REAL NOT NULL DEFAULT 0,
@@ -54,6 +55,7 @@ CREATE TABLE IF NOT EXISTS entries (
 CREATE INDEX IF NOT EXISTS idx_entries_date ON entries(entry_date);
 CREATE INDEX IF NOT EXISTS idx_entries_worker ON entries(worker_id);
 CREATE INDEX IF NOT EXISTS idx_entries_project ON entries(project_id);
+CREATE INDEX IF NOT EXISTS idx_entries_group ON entries(entry_group_id);
 """
 
 
@@ -288,6 +290,11 @@ def init_db() -> None:
             )
         if "temperature_c" not in cols:
             conn.execute("ALTER TABLE entries ADD COLUMN temperature_c REAL")
+        if "entry_group_id" not in cols:
+            conn.execute("ALTER TABLE entries ADD COLUMN entry_group_id TEXT")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_entries_group ON entries(entry_group_id)"
+            )
 
 
 def _table_is_empty(table: str) -> bool:
@@ -543,6 +550,7 @@ def add_entry(
     safety_notes: str = "",
     action_follow_up: str = "",
     logged_by_worker_id: Optional[int] = None,
+    entry_group_id: Optional[str] = None,
 ) -> int:
     entry_date_s = _as_date_str(entry_date)
     temp_val: Optional[float]
@@ -566,6 +574,8 @@ def add_entry(
     }
     if logged_by_worker_id is not None:
         payload["logged_by_worker_id"] = int(logged_by_worker_id)
+    if entry_group_id:
+        payload["entry_group_id"] = str(entry_group_id)
 
     if using_supabase():
         now = datetime.utcnow().isoformat() + "Z"
@@ -581,16 +591,17 @@ def add_entry(
         cur = conn.execute(
             """
             INSERT INTO entries (
-                entry_date, worker_id, project_id, logged_by_worker_id, weather, temperature_c,
-                hours_worked, work_done, crew_notes, materials_notes, issues_delays,
-                safety_notes, action_follow_up, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                entry_date, worker_id, project_id, logged_by_worker_id, entry_group_id,
+                weather, temperature_c, hours_worked, work_done, crew_notes, materials_notes,
+                issues_delays, safety_notes, action_follow_up, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 entry_date_s,
                 worker_id,
                 project_id,
                 int(logged_by_worker_id) if logged_by_worker_id is not None else None,
+                str(entry_group_id) if entry_group_id else None,
                 payload["weather"],
                 temp_val,
                 payload["hours_worked"],
@@ -621,7 +632,10 @@ def add_entries_for_crew(
     safety_notes: str = "",
     action_follow_up: str = "",
 ) -> list[int]:
-    """Create one journal row per worker with hours > 0. Returns new entry ids."""
+    """Create one journal row per worker with hours > 0 (same entry_group_id). Returns ids."""
+    import uuid
+
+    group_id = str(uuid.uuid4())
     ids: list[int] = []
     for worker_id, hours in hours_by_worker_id.items():
         try:
@@ -645,6 +659,7 @@ def add_entries_for_crew(
                 safety_notes=safety_notes,
                 action_follow_up=action_follow_up,
                 logged_by_worker_id=logged_by_worker_id,
+                entry_group_id=group_id,
             )
         )
     return ids
@@ -864,6 +879,108 @@ def entry_stats(
     projects = {e.get("project_name") for e in entries}
     return {
         "count": len(entries),
+        "total_hours": total_hours,
+        "worker_count": len(workers),
+        "project_count": len(projects),
+    }
+
+
+def group_journal_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse person-rows into one journal card per form submission (entry_group_id)."""
+    from collections import OrderedDict
+
+    buckets: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
+    for e in entries:
+        gid = (e.get("entry_group_id") or "").strip() or f"solo-{e.get('id')}"
+        if gid not in buckets:
+            buckets[gid] = {
+                "group_id": gid,
+                "ids": [],
+                "entry_date": e.get("entry_date"),
+                "project_name": e.get("project_name"),
+                "project_id": e.get("project_id"),
+                "logged_by_name": e.get("logged_by_name") or "",
+                "logged_by_worker_id": e.get("logged_by_worker_id"),
+                "weather": e.get("weather") or "",
+                "temperature_c": e.get("temperature_c"),
+                "work_done": e.get("work_done") or "",
+                "crew_notes": e.get("crew_notes") or "",
+                "materials_notes": e.get("materials_notes") or "",
+                "issues_delays": e.get("issues_delays") or "",
+                "safety_notes": e.get("safety_notes") or "",
+                "action_follow_up": e.get("action_follow_up") or "",
+                "created_at": e.get("created_at") or "",
+                "people": [],
+                "total_hours": 0.0,
+            }
+        g = buckets[gid]
+        try:
+            hrs = float(e.get("hours_worked") or 0)
+        except (TypeError, ValueError):
+            hrs = 0.0
+        g["ids"].append(int(e["id"]))
+        g["people"].append(
+            {
+                "id": int(e["id"]),
+                "worker_id": e.get("worker_id"),
+                "worker_name": e.get("worker_name") or "",
+                "hours_worked": hrs,
+            }
+        )
+        g["total_hours"] += hrs
+        # Prefer earliest created_at for group stamp
+        if (e.get("created_at") or "") < (g.get("created_at") or "z"):
+            g["created_at"] = e.get("created_at") or g["created_at"]
+    # Sort people by name
+    for g in buckets.values():
+        g["people"].sort(key=lambda p: (p.get("worker_name") or "").lower())
+        # Primary id for display
+        g["id"] = g["ids"][0] if g["ids"] else None
+    return list(buckets.values())
+
+
+def list_journal_groups(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    worker_id: Optional[int] = None,
+    project_id: Optional[int] = None,
+) -> list[dict[str, Any]]:
+    """Journals for display/PDF: one item per multi-person form submit."""
+    # Load all person-rows in range (do not filter worker yet so groups stay complete)
+    rows = list_entries(
+        date_from=date_from,
+        date_to=date_to,
+        worker_id=None,
+        project_id=project_id,
+    )
+    groups = group_journal_entries(rows)
+    if worker_id:
+        wid = int(worker_id)
+        groups = [
+            g
+            for g in groups
+            if any(int(p.get("worker_id") or 0) == wid for p in g.get("people") or [])
+        ]
+    return groups
+
+
+def delete_entry_group(group: dict[str, Any]) -> None:
+    for eid in group.get("ids") or []:
+        delete_entry(int(eid))
+
+
+def journal_group_stats(groups: list[dict[str, Any]]) -> dict[str, Any]:
+    total_hours = sum(float(g.get("total_hours") or 0) for g in groups)
+    workers: set[str] = set()
+    projects: set[str] = set()
+    for g in groups:
+        for p in g.get("people") or []:
+            if p.get("worker_name"):
+                workers.add(p["worker_name"])
+        if g.get("project_name"):
+            projects.add(g["project_name"])
+    return {
+        "count": len(groups),
         "total_hours": total_hours,
         "worker_count": len(workers),
         "project_count": len(projects),

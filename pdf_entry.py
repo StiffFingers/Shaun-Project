@@ -197,10 +197,33 @@ def _fmt_hours(entry: dict[str, Any]) -> str:
         return str(h or "—")
 
 
+def _people_rows(journal: dict[str, Any]) -> list[tuple[str, str]]:
+    """Return (worker_name, hours_str) for PDF hours section."""
+    people = journal.get("people") or []
+    if people:
+        rows = []
+        for p in people:
+            name = p.get("worker_name") or "—"
+            try:
+                hrs = f"{float(p.get('hours_worked') or 0):g}"
+            except (TypeError, ValueError):
+                hrs = str(p.get("hours_worked") or "—")
+            rows.append((name, hrs))
+        return rows
+    # Legacy single person-row
+    return [(journal.get("worker_name") or "—", _fmt_hours(journal))]
+
+
 def build_entry_pdf(entry: dict[str, Any]) -> bytes:
-    """Return PDF bytes for one journal entry in New Entry form style."""
+    """Return PDF bytes for one journal (may include multiple people/hours)."""
     styles = _styles()
     buf = BytesIO()
+    people = entry.get("people") or []
+    title_id = entry.get("group_id") or entry.get("id") or ""
+    if isinstance(title_id, str) and title_id.startswith("solo-"):
+        title_id = title_id.replace("solo-", "#")
+    elif isinstance(title_id, str) and len(title_id) > 8:
+        title_id = title_id[:8]
     doc = SimpleDocTemplate(
         buf,
         pagesize=letter,
@@ -208,7 +231,7 @@ def build_entry_pdf(entry: dict[str, Any]) -> bytes:
         rightMargin=0.75 * inch,
         topMargin=0.6 * inch,
         bottomMargin=0.6 * inch,
-        title=f"Journal Entry #{entry.get('id', '')}",
+        title=f"Journal Entry {title_id}",
     )
     story = []
 
@@ -221,7 +244,7 @@ def build_entry_pdf(entry: dict[str, Any]) -> bytes:
     story.append(Paragraph("In-Spec Team Work Journal Entry", styles["title"]))
     story.append(
         Paragraph(
-            f"Entry #{_esc(entry.get('id'))} · exported from the field journal",
+            f"Journal { _esc(title_id) } · exported from the field journal",
             styles["small"],
         )
     )
@@ -253,32 +276,43 @@ def build_entry_pdf(entry: dict[str, Any]) -> bytes:
         )
     )
 
-    # Hours by person (this entry's worker)
+    # Hours by person — all people on this journal
     story.append(Spacer(1, 6))
     story.append(Paragraph("Hours", styles["label"]))
+    hour_lines = []
+    for name, hrs in _people_rows(entry):
+        hour_lines.append(
+            [
+                Paragraph(f"<b>{_esc(name)}</b>", styles["value"]),
+                Paragraph(_esc(hrs), styles["value"]),
+            ]
+        )
+    if not hour_lines:
+        hour_lines = [[Paragraph("—", styles["value"]), Paragraph("—", styles["value"])]]
+
+    hours_people_table = Table(
+        hour_lines,
+        colWidths=[CONTENT_W - 2.0 * inch, 1.4 * inch],
+    )
+    hours_people_table.setStyle(
+        TableStyle(
+            [
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 2),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+            ]
+        )
+    )
     hours_inner = Table(
         [
             [
                 Paragraph(
-                    "Enter hours for each active crew member who worked. "
-                    "Leave at 0 if they did not work.",
+                    "Hours for each crew member on this journal entry.",
                     styles["small"],
                 )
             ],
-            [
-                Table(
-                    [
-                        [
-                            Paragraph(
-                                f"<b>{_esc(entry.get('worker_name') or '—')}</b>",
-                                styles["value"],
-                            ),
-                            Paragraph(_fmt_hours(entry), styles["value"]),
-                        ]
-                    ],
-                    colWidths=[CONTENT_W - 2.0 * inch, 1.4 * inch],
-                )
-            ],
+            [hours_people_table],
         ],
         colWidths=[CONTENT_W],
     )
@@ -329,15 +363,21 @@ def build_entry_pdf(entry: dict[str, Any]) -> bytes:
 
 
 def entry_pdf_filename(entry: dict[str, Any]) -> str:
-    eid = entry.get("id", "x")
     day = str(entry.get("entry_date") or "date")[:10]
-    worker = str(entry.get("worker_name") or "worker").replace(" ", "_")
-    safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in worker)[:40]
-    return f"journal_{day}_{safe}_{eid}.pdf"
+    site = str(entry.get("project_name") or "site").replace(" ", "_")
+    safe_site = "".join(c if c.isalnum() or c in "-_." else "_" for c in site)[:30]
+    gid = entry.get("group_id") or entry.get("id") or "x"
+    if isinstance(gid, str) and gid.startswith("solo-"):
+        tag = gid.replace("solo-", "")
+    elif isinstance(gid, str):
+        tag = gid[:8]
+    else:
+        tag = str(gid)
+    return f"journal_{day}_{safe_site}_{tag}.pdf"
 
 
 def build_entries_pdf_zip(entries: Iterable[dict[str, Any]]) -> bytes:
-    """One PDF per entry, packaged in a single ZIP download."""
+    """One PDF per journal group, packaged in a single ZIP download."""
     buf = BytesIO()
     with ZipFile(buf, "w", ZIP_DEFLATED) as zf:
         used_names: set[str] = set()

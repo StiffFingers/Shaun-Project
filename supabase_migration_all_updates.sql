@@ -15,3 +15,9 @@ ALTER TABLE entries
 -- Temperature in °C
 ALTER TABLE entries
   ADD COLUMN IF NOT EXISTS temperature_c DOUBLE PRECISION;
+
+-- One journal id shared by all person-rows from a single New Entry save
+ALTER TABLE entries
+  ADD COLUMN IF NOT EXISTS entry_group_id TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_entries_group ON entries(entry_group_id);

@@ -472,43 +472,37 @@ def page_journal() -> None:
     worker_id = None if worker_filter == "All workers" else workers.get(worker_filter)
     project_id = None if project_filter == "All projects" else projects.get(project_filter)
 
-    entries = db.list_entries(
+    # One journal card per form submission (may include multiple people/hours)
+    journals = db.list_journal_groups(
         date_from=date_from.isoformat(),
         date_to=date_to.isoformat(),
         worker_id=worker_id,
         project_id=project_id,
     )
-    stats = db.entry_stats(
-        date_from=date_from.isoformat(),
-        date_to=date_to.isoformat(),
-        worker_id=worker_id,
-        project_id=project_id,
-    )
+    stats = db.journal_group_stats(journals)
 
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Entries", stats["count"])
+    m1.metric("Journals", stats["count"])
     m2.metric("Total hours", f"{stats['total_hours']:.1f}")
     m3.metric("Workers", stats["worker_count"])
     m4.metric("Projects", stats["project_count"])
 
-    if not entries:
-        st.info("No entries match these filters.")
+    if not journals:
+        st.info("No journals match these filters.")
         return
 
-    by_id = {int(e["id"]): e for e in entries}
-    # Read checkbox state from session (widgets render below) so the bulk download
-    # can sit above the "Export selected" header.
-    selected_ids = [
-        int(e["id"])
-        for e in entries
-        if st.session_state.get(f"sel_{int(e['id'])}", False)
+    by_gid = {str(j["group_id"]): j for j in journals}
+    selected_gids = [
+        str(j["group_id"])
+        for j in journals
+        if st.session_state.get(f"sel_g_{j['group_id']}", False)
     ]
-    selected_entries = [by_id[i] for i in selected_ids if i in by_id]
+    selected_journals = [by_gid[g] for g in selected_gids if g in by_gid]
 
-    if selected_entries:
-        zip_bytes = build_entries_pdf_zip(selected_entries)
+    if selected_journals:
+        zip_bytes = build_entries_pdf_zip(selected_journals)
         st.download_button(
-            label=f"Download {len(selected_entries)} PDF(s) as ZIP",
+            label=f"Download {len(selected_journals)} PDF(s) as ZIP",
             data=zip_bytes,
             file_name="journal_entries_pdfs.zip",
             mime="application/zip",
@@ -517,83 +511,107 @@ def page_journal() -> None:
             use_container_width=True,
         )
         st.caption(
-            f"{len(selected_entries)} journal(s) selected — one PDF per journal inside the ZIP."
+            f"{len(selected_journals)} journal(s) selected — one PDF per journal inside the ZIP."
         )
 
     st.caption(
-        "Check one or more entries, then use the download button above "
-        "for a ZIP with **one PDF per journal**. Each entry also has its own **Export PDF** button."
+        "Each card is one daily log (all people/hours from that save). "
+        "Check boxes to bulk-export PDFs, or use **Export PDF** on a card."
     )
 
-    for entry in entries:
-        eid = int(entry["id"])
+    for journal in journals:
+        gid = str(journal["group_id"])
+        people = journal.get("people") or []
         with st.container(border=True):
             top_l, top_mid, top_r = st.columns([0.4, 3.6, 1.2])
             with top_l:
                 st.checkbox(
-                    f"Select {eid}",
-                    key=f"sel_{eid}",
+                    f"Select {gid}",
+                    key=f"sel_g_{gid}",
                     label_visibility="collapsed",
                 )
             with top_mid:
-                logged_by = entry.get("logged_by_name") or ""
+                logged_by = journal.get("logged_by_name") or ""
                 logged_bit = f" · logged by {logged_by}" if logged_by else ""
-                temp = entry.get("temperature_c")
+                temp = journal.get("temperature_c")
                 temp_bit = (
                     f" · {int(temp) if temp == int(temp) else temp}°C"
                     if temp is not None and temp != ""
                     else ""
                 )
+                hours_summary = ", ".join(
+                    f"{p.get('worker_name')} ({float(p.get('hours_worked') or 0):g}h)"
+                    for p in people
+                )
                 st.markdown(
-                    f"**#{entry['id']} · {entry['entry_date']}** — "
-                    f"{entry['worker_name']} @ **{entry['project_name']}** · "
-                    f"{entry['hours_worked']}h · {entry['weather'] or '—'}"
+                    f"**{journal.get('entry_date')}** — "
+                    f"**{journal.get('project_name')}** · "
+                    f"{float(journal.get('total_hours') or 0):g}h total · "
+                    f"{journal.get('weather') or '—'}"
                     f"{temp_bit}{logged_bit}"
                 )
+                if hours_summary:
+                    st.caption(hours_summary)
             with top_r:
                 action = st.selectbox(
                     "Action",
                     ["", "Edit", "Delete"],
-                    key=f"action_{entry['id']}",
+                    key=f"action_g_{gid}",
                     label_visibility="collapsed",
                 )
 
-            st.write(entry["work_done"] or "_(no work description)_")
+            st.write(journal.get("work_done") or "_(no work description)_")
 
             details = []
-            if entry.get("safety_notes"):
-                details.append(f"**Health, Safety, Environment:** {entry['safety_notes']}")
-            if entry.get("crew_notes"):
-                details.append(f"**Visitor / Subcontractors:** {entry['crew_notes']}")
-            if entry.get("materials_notes"):
-                details.append(f"**Materials:** {entry['materials_notes']}")
-            if entry.get("issues_delays"):
-                details.append(f"**Issues:** {entry['issues_delays']}")
-            if entry.get("action_follow_up"):
-                details.append(f"**Action / Follow up:** {entry['action_follow_up']}")
+            if journal.get("safety_notes"):
+                details.append(
+                    f"**Health, Safety, Environment:** {journal['safety_notes']}"
+                )
+            if journal.get("crew_notes"):
+                details.append(
+                    f"**Visitor / Subcontractors:** {journal['crew_notes']}"
+                )
+            if journal.get("materials_notes"):
+                details.append(f"**Materials:** {journal['materials_notes']}")
+            if journal.get("issues_delays"):
+                details.append(f"**Issues:** {journal['issues_delays']}")
+            if journal.get("action_follow_up"):
+                details.append(f"**Action / Follow up:** {journal['action_follow_up']}")
             if details:
                 st.markdown("  \n".join(details))
 
-            pdf_bytes = build_entry_pdf(entry)
+            pdf_bytes = build_entry_pdf(journal)
             st.download_button(
                 label="Export PDF",
                 data=pdf_bytes,
-                file_name=entry_pdf_filename(entry),
+                file_name=entry_pdf_filename(journal),
                 mime="application/pdf",
-                key=f"pdf_{eid}",
+                key=f"pdf_g_{gid}",
                 use_container_width=True,
             )
 
             if action == "Edit":
-                _edit_entry_form(entry, workers, projects)
+                # Edit first person-row shared fields (updates apply to that row);
+                # full multi-line edit stays available via person rows if needed.
+                primary = None
+                if people:
+                    primary = db.get_entry(int(people[0]["id"]))
+                if primary:
+                    _edit_entry_form(primary, workers, projects)
+                    if len(people) > 1:
+                        st.info(
+                            "This journal has multiple people. Editing updates the first "
+                            "person’s line fields; hours for others stay as logged. "
+                            "Delete the journal and re-enter if you need a full rewrite."
+                        )
             elif action == "Delete":
                 if st.button(
-                    f"Confirm delete entry #{entry['id']}",
-                    key=f"del_{entry['id']}",
+                    "Confirm delete this entire journal (all people on it)",
+                    key=f"del_g_{gid}",
                     type="primary",
                 ):
-                    db.delete_entry(entry["id"])
-                    st.success(f"Deleted entry #{entry['id']}.")
+                    db.delete_entry_group(journal)
+                    st.success("Deleted journal.")
                     st.rerun()
 
 
