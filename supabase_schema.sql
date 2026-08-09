@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS entries (
     materials_notes TEXT NOT NULL DEFAULT '',
     issues_delays TEXT NOT NULL DEFAULT '',
     safety_notes TEXT NOT NULL DEFAULT '',
+    action_follow_up TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

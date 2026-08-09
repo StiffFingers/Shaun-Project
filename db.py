@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS entries (
     materials_notes TEXT NOT NULL DEFAULT '',
     issues_delays TEXT NOT NULL DEFAULT '',
     safety_notes TEXT NOT NULL DEFAULT '',
+    action_follow_up TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (worker_id) REFERENCES workers(id),
@@ -275,6 +276,10 @@ def init_db() -> None:
                 "ALTER TABLE entries ADD COLUMN logged_by_worker_id INTEGER "
                 "REFERENCES workers(id)"
             )
+        if "action_follow_up" not in cols:
+            conn.execute(
+                "ALTER TABLE entries ADD COLUMN action_follow_up TEXT NOT NULL DEFAULT ''"
+            )
 
 
 def _table_is_empty(table: str) -> bool:
@@ -446,6 +451,20 @@ def add_project(name: str) -> int:
         return int(cur.lastrowid)
 
 
+def get_or_create_project(name: str) -> int:
+    """Match existing job site by name (case-insensitive) or create a new active project."""
+    name = name.strip()
+    if not name:
+        raise ValueError("Job site is required")
+    for p in list_projects(active_only=False):
+        if (p.get("name") or "").strip().lower() == name.lower():
+            # Reactivate if it was inactive
+            if not p.get("active"):
+                set_project_active(int(p["id"]), True)
+            return int(p["id"])
+    return add_project(name)
+
+
 def set_project_active(project_id: int, active: bool) -> None:
     if using_supabase():
         _sb().table("projects").update({"active": bool(active)}).eq(
@@ -513,6 +532,7 @@ def add_entry(
     materials_notes: str = "",
     issues_delays: str = "",
     safety_notes: str = "",
+    action_follow_up: str = "",
     logged_by_worker_id: Optional[int] = None,
 ) -> int:
     entry_date_s = _as_date_str(entry_date)
@@ -527,6 +547,7 @@ def add_entry(
         "materials_notes": materials_notes.strip(),
         "issues_delays": issues_delays.strip(),
         "safety_notes": safety_notes.strip(),
+        "action_follow_up": action_follow_up.strip(),
     }
     if logged_by_worker_id is not None:
         payload["logged_by_worker_id"] = int(logged_by_worker_id)
@@ -547,8 +568,8 @@ def add_entry(
             INSERT INTO entries (
                 entry_date, worker_id, project_id, logged_by_worker_id, weather, hours_worked,
                 work_done, crew_notes, materials_notes, issues_delays,
-                safety_notes, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                safety_notes, action_follow_up, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 entry_date_s,
@@ -562,6 +583,7 @@ def add_entry(
                 payload["materials_notes"],
                 payload["issues_delays"],
                 payload["safety_notes"],
+                payload["action_follow_up"],
                 now,
                 now,
             ),
@@ -580,6 +602,7 @@ def add_entries_for_crew(
     materials_notes: str = "",
     issues_delays: str = "",
     safety_notes: str = "",
+    action_follow_up: str = "",
 ) -> list[int]:
     """Create one journal row per worker with hours > 0. Returns new entry ids."""
     ids: list[int] = []
@@ -602,6 +625,7 @@ def add_entries_for_crew(
                 materials_notes=materials_notes,
                 issues_delays=issues_delays,
                 safety_notes=safety_notes,
+                action_follow_up=action_follow_up,
                 logged_by_worker_id=logged_by_worker_id,
             )
         )
@@ -620,6 +644,7 @@ def update_entry(
     materials_notes: str = "",
     issues_delays: str = "",
     safety_notes: str = "",
+    action_follow_up: str = "",
 ) -> None:
     entry_date_s = _as_date_str(entry_date)
     payload = {
@@ -633,6 +658,7 @@ def update_entry(
         "materials_notes": materials_notes.strip(),
         "issues_delays": issues_delays.strip(),
         "safety_notes": safety_notes.strip(),
+        "action_follow_up": action_follow_up.strip(),
         "updated_at": datetime.utcnow().isoformat() + "Z"
         if using_supabase()
         else _now(),
@@ -649,7 +675,7 @@ def update_entry(
                 entry_date = ?, worker_id = ?, project_id = ?, weather = ?,
                 hours_worked = ?, work_done = ?, crew_notes = ?,
                 materials_notes = ?, issues_delays = ?, safety_notes = ?,
-                updated_at = ?
+                action_follow_up = ?, updated_at = ?
             WHERE id = ?
             """,
             (
@@ -663,6 +689,7 @@ def update_entry(
                 payload["materials_notes"],
                 payload["issues_delays"],
                 payload["safety_notes"],
+                payload["action_follow_up"],
                 payload["updated_at"],
                 entry_id,
             ),

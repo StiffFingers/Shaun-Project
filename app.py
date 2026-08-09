@@ -237,17 +237,14 @@ def _id_to_name(options: dict[str, int], target_id: int) -> str | None:
 def page_new_entry() -> None:
     st.caption(
         "Log who is filling this out, then enter hours for each person on site. "
-        "Only people with hours above 0 are saved."
+        "Only people with hours above 0 are saved. Type the job site name freely."
     )
 
     workers = _worker_options()
-    projects = _project_options()
+    known_sites = list(_project_options(active_only=False).keys())
 
     if not workers:
         st.warning("Add at least one worker in **Crew & Projects** before logging.")
-        return
-    if not projects:
-        st.warning("Add at least one project in **Crew & Projects** before logging.")
         return
 
     worker_names = list(workers.keys())
@@ -257,7 +254,20 @@ def page_new_entry() -> None:
         with c1:
             entry_date = st.date_input("Date", value=date.today())
         with c2:
-            project_name = st.selectbox("Project / job site", list(projects.keys()))
+            project_name = st.text_input(
+                "Job site *",
+                placeholder="Type job site name…",
+                help=(
+                    "Type the job site. Matching names reuse an existing site; "
+                    "a new name creates one automatically."
+                    + (
+                        f" Known sites: {', '.join(known_sites[:12])}"
+                        + ("…" if len(known_sites) > 12 else "")
+                        if known_sites
+                        else ""
+                    )
+                ),
+            )
 
         logged_by_name = st.selectbox(
             "Log entry by",
@@ -269,7 +279,6 @@ def page_new_entry() -> None:
         st.markdown("#### Hours by person")
         st.caption("Enter hours for each active crew member who worked. Leave at 0 if they did not work.")
         hours_inputs: dict[str, float] = {}
-        # Two columns of name + hours for easier scanning
         names = worker_names
         for i in range(0, len(names), 2):
             cols = st.columns(2)
@@ -286,8 +295,13 @@ def page_new_entry() -> None:
 
         work_done = st.text_area(
             "Work performed *",
-            placeholder="What did the crew do today? e.g. Formed footings on north wall, poured slab section B…",
+            placeholder="Detail of today jobsite activities",
             height=120,
+        )
+        safety = st.text_area(
+            "Health, Safety, Environment",
+            placeholder="Incidents, toolbox talk topics, PPE used",
+            height=80,
         )
         crew_notes = st.text_area(
             "Crew notes",
@@ -304,15 +318,18 @@ def page_new_entry() -> None:
             placeholder="Weather delays, missing materials, change orders, access problems…",
             height=80,
         )
-        safety = st.text_area(
-            "Safety notes",
-            placeholder="Incidents, near misses, toolbox talk topics, PPE issues…",
+        action_follow_up = st.text_area(
+            "Action / Follow up Items",
+            placeholder="Follow-ups, open actions, items for next shift…",
             height=80,
         )
 
         submitted = st.form_submit_button("Save entry", type="primary", use_container_width=True)
 
     if submitted:
+        if not (project_name or "").strip():
+            st.error("Please enter a job site.")
+            return
         if not work_done.strip():
             st.error("Please describe the work performed.")
             return
@@ -324,9 +341,11 @@ def page_new_entry() -> None:
             st.error("Enter hours greater than 0 for at least one person.")
             return
         try:
+            project_id = db.get_or_create_project(project_name)
+            _clear_crew_cache()
             ids = db.add_entries_for_crew(
                 entry_date=entry_date,
-                project_id=projects[project_name],
+                project_id=project_id,
                 hours_by_worker_id=hours_by_id,
                 logged_by_worker_id=workers[logged_by_name],
                 weather=weather,
@@ -335,12 +354,13 @@ def page_new_entry() -> None:
                 materials_notes=materials_notes,
                 issues_delays=issues,
                 safety_notes=safety,
+                action_follow_up=action_follow_up,
             )
         except Exception as exc:
             st.error(f"Could not save: {exc}")
             st.info(
-                "If this mentions a missing column, run the SQL in "
-                "`supabase_migration_logged_by.sql` in your Supabase SQL Editor, then try again."
+                "If this mentions a missing column, run the latest SQL migration files "
+                "in your Supabase SQL Editor (`supabase_migration_*.sql`), then try again."
             )
             return
 
@@ -349,7 +369,7 @@ def page_new_entry() -> None:
         )
         st.success(
             f"Saved {len(ids)} log line(s) for {entry_date.isoformat()} "
-            f"(logged by {logged_by_name}): {detail}."
+            f"@ {project_name.strip()} (logged by {logged_by_name}): {detail}."
         )
         celebrate_entry_saved()
 
@@ -430,14 +450,16 @@ def page_journal() -> None:
             st.write(entry["work_done"] or "_(no work description)_")
 
             details = []
-            if entry["crew_notes"]:
+            if entry.get("safety_notes"):
+                details.append(f"**Health, Safety, Environment:** {entry['safety_notes']}")
+            if entry.get("crew_notes"):
                 details.append(f"**Crew:** {entry['crew_notes']}")
-            if entry["materials_notes"]:
+            if entry.get("materials_notes"):
                 details.append(f"**Materials:** {entry['materials_notes']}")
-            if entry["issues_delays"]:
+            if entry.get("issues_delays"):
                 details.append(f"**Issues:** {entry['issues_delays']}")
-            if entry["safety_notes"]:
-                details.append(f"**Safety:** {entry['safety_notes']}")
+            if entry.get("action_follow_up"):
+                details.append(f"**Action / Follow up:** {entry['action_follow_up']}")
             if details:
                 st.markdown("  \n".join(details))
 
@@ -496,10 +518,9 @@ def _edit_entry_form(
                 key=f"ed_worker_{entry['id']}",
             )
         with c3:
-            project_name = st.selectbox(
-                "Project",
-                project_names,
-                index=project_names.index(current_project),
+            project_name = st.text_input(
+                "Job site",
+                value=current_project,
                 key=f"ed_project_{entry['id']}",
             )
 
@@ -529,8 +550,16 @@ def _edit_entry_form(
         work_done = st.text_area(
             "Work performed",
             value=entry["work_done"] or "",
+            placeholder="Detail of today jobsite activities",
             height=100,
             key=f"ed_work_{entry['id']}",
+        )
+        safety = st.text_area(
+            "Health, Safety, Environment",
+            value=entry["safety_notes"] or "",
+            placeholder="Incidents, toolbox talk topics, PPE used",
+            height=70,
+            key=f"ed_safe_{entry['id']}",
         )
         crew_notes = st.text_area(
             "Crew notes",
@@ -550,11 +579,11 @@ def _edit_entry_form(
             height=70,
             key=f"ed_iss_{entry['id']}",
         )
-        safety = st.text_area(
-            "Safety notes",
-            value=entry["safety_notes"] or "",
+        action_follow_up = st.text_area(
+            "Action / Follow up Items",
+            value=entry.get("action_follow_up") or "",
             height=70,
-            key=f"ed_safe_{entry['id']}",
+            key=f"ed_follow_{entry['id']}",
         )
 
         saved = st.form_submit_button("Update entry", type="primary")
@@ -563,11 +592,20 @@ def _edit_entry_form(
         if not work_done.strip():
             st.error("Work performed cannot be empty.")
             return
+        if not (project_name or "").strip():
+            st.error("Job site cannot be empty.")
+            return
+        try:
+            project_id = db.get_or_create_project(project_name)
+            _clear_crew_cache()
+        except Exception as exc:
+            st.error(str(exc))
+            return
         db.update_entry(
             entry_id=entry["id"],
             entry_date=entry_date,
             worker_id=all_workers[worker_name],
-            project_id=all_projects[project_name],
+            project_id=project_id,
             weather=weather,
             hours_worked=hours,
             work_done=work_done,
@@ -575,6 +613,7 @@ def _edit_entry_form(
             materials_notes=materials_notes,
             issues_delays=issues,
             safety_notes=safety,
+            action_follow_up=action_follow_up,
         )
         st.success(f"Updated entry #{entry['id']}.")
         st.rerun()

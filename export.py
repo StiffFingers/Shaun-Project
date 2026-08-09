@@ -16,13 +16,14 @@ COLUMNS = [
     ("worker_name", "Worker"),
     ("hours_worked", "Hours"),
     ("logged_by_name", "Log Entry By"),
-    ("project_name", "Project / Job Site"),
+    ("project_name", "Job Site"),
     ("weather", "Weather"),
     ("work_done", "Work Performed"),
+    ("safety_notes", "Health, Safety, Environment"),
     ("crew_notes", "Crew Notes"),
     ("materials_notes", "Materials"),
     ("issues_delays", "Issues / Delays"),
-    ("safety_notes", "Safety Notes"),
+    ("action_follow_up", "Action / Follow up Items"),
     ("created_at", "Logged At"),
 ]
 
@@ -111,7 +112,14 @@ def build_excel(
     _autosize(ws)
     # Wider text columns
     for col_idx, (key, _) in enumerate(COLUMNS, start=1):
-        if key in ("work_done", "crew_notes", "materials_notes", "issues_delays", "safety_notes"):
+        if key in (
+            "work_done",
+            "crew_notes",
+            "materials_notes",
+            "issues_delays",
+            "safety_notes",
+            "action_follow_up",
+        ):
             ws.column_dimensions[get_column_letter(col_idx)].width = 40
 
     # --- Sheet 2: Summary by Worker ---
