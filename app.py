@@ -12,6 +12,7 @@ import streamlit.components.v1 as components
 import auth
 import db
 from export import build_excel
+from pdf_entry import build_entry_pdf, build_entries_pdf_zip, entry_pdf_filename
 
 ASSETS_DIR = Path(__file__).parent / "assets"
 LOGO_PATH = ASSETS_DIR / "in-spec-logo.png"
@@ -494,10 +495,27 @@ def page_journal() -> None:
         st.info("No entries match these filters.")
         return
 
+    st.markdown("#### Export selected")
+    st.caption(
+        "Check one or more entries, then download a ZIP with **one PDF per journal** "
+        "(same layout as the New Entry form)."
+    )
+    selected_ids: list[int] = []
+    by_id = {int(e["id"]): e for e in entries}
+
     for entry in entries:
+        eid = int(entry["id"])
         with st.container(border=True):
-            top_l, top_r = st.columns([4, 1])
+            top_l, top_mid, top_r = st.columns([0.4, 3.6, 1.2])
             with top_l:
+                checked = st.checkbox(
+                    f"Select {eid}",
+                    key=f"sel_{eid}",
+                    label_visibility="collapsed",
+                )
+                if checked:
+                    selected_ids.append(eid)
+            with top_mid:
                 logged_by = entry.get("logged_by_name") or ""
                 logged_bit = f" · logged by {logged_by}" if logged_by else ""
                 temp = entry.get("temperature_c")
@@ -536,6 +554,16 @@ def page_journal() -> None:
             if details:
                 st.markdown("  \n".join(details))
 
+            pdf_bytes = build_entry_pdf(entry)
+            st.download_button(
+                label="Export PDF",
+                data=pdf_bytes,
+                file_name=entry_pdf_filename(entry),
+                mime="application/pdf",
+                key=f"pdf_{eid}",
+                use_container_width=True,
+            )
+
             if action == "Edit":
                 _edit_entry_form(entry, workers, projects)
             elif action == "Delete":
@@ -547,6 +575,21 @@ def page_journal() -> None:
                     db.delete_entry(entry["id"])
                     st.success(f"Deleted entry #{entry['id']}.")
                     st.rerun()
+
+    if selected_ids:
+        selected_entries = [by_id[i] for i in selected_ids if i in by_id]
+        zip_bytes = build_entries_pdf_zip(selected_entries)
+        st.download_button(
+            label=f"Download {len(selected_entries)} PDF(s) as ZIP",
+            data=zip_bytes,
+            file_name="journal_entries_pdfs.zip",
+            mime="application/zip",
+            type="primary",
+            key="zip_selected_pdfs",
+            use_container_width=True,
+        )
+    else:
+        st.caption("Select one or more entries above to download them together as a ZIP of PDFs.")
 
 
 def _edit_entry_form(
