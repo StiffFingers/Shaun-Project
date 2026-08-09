@@ -21,9 +21,9 @@ from pdf_entry import (
 
 ASSETS_DIR = Path(__file__).parent / "assets"
 LOGO_PATH = ASSETS_DIR / "in-spec-logo.png"
-# 2-frame GIF: arms crossed → thumbs up; pop-up ~2s then gone
-SHAUN_CELEBRATE_MEDIA = ASSETS_DIR / "shaun_celebrate.gif"
-SHAUN_CELEBRATE_FALLBACK = ASSETS_DIR / "shaun_celebrate_still.png"
+# Celebration pop-up (~2s): thumbs-up animation
+SHAUN_CELEBRATE_MEDIA = ASSETS_DIR / "celebrate_thumbs_up.gif"
+SHAUN_CELEBRATE_FALLBACK = ASSETS_DIR / "celebrate_thumbs_up.jpg"
 
 # Total on-screen time for the celebration overlay (milliseconds)
 CELEBRATION_MS = 2000
@@ -117,18 +117,18 @@ def celebrate_entry_saved() -> None:
 <body>
 <script>
 (function () {{
-  // v4 — 2s celebration, 2-frame GIF
+  // v5 — 2s celebration, new thumbs-up
   const DURATION = 2000;
   const src = "data:{mime};base64,{b64}";
-  const STYLE_ID = "shaun-celebration-style-v4";
-  const OVERLAY_ID = "shaun-celebration-overlay-v4";
+  const STYLE_ID = "shaun-celebration-style-v5";
+  const OVERLAY_ID = "shaun-celebration-overlay-v5";
 
   function buildOverlay(doc) {{
-    ["shaun-celebration-overlay", "shaun-celebration-overlay-v3", "shaun-celebration-overlay-v4"].forEach(function (id) {{
+    ["shaun-celebration-overlay", "shaun-celebration-overlay-v3", "shaun-celebration-overlay-v5"].forEach(function (id) {{
       var el = doc.getElementById(id);
       if (el) el.remove();
     }});
-    ["shaun-celebration-style", "shaun-celebration-style-v3", "shaun-celebration-style-v4"].forEach(function (id) {{
+    ["shaun-celebration-style", "shaun-celebration-style-v3", "shaun-celebration-style-v5"].forEach(function (id) {{
       var el = doc.getElementById(id);
       if (el) el.remove();
     }});
@@ -136,7 +136,7 @@ def celebrate_entry_saved() -> None:
     const style = doc.createElement("style");
     style.id = STYLE_ID;
     style.textContent = `
-      @keyframes shaunCelebInOutV4 {{
+      @keyframes shaunCelebInOutV5 {{
         0%   {{ opacity: 0; transform: scale(0.35); }}
         10%  {{ opacity: 1; transform: scale(1.05); }}
         15%  {{ opacity: 1; transform: scale(1); }}
@@ -152,7 +152,7 @@ def celebrate_entry_saved() -> None:
         align-items: center;
         justify-content: center;
         background: rgba(10, 25, 40, 0.42);
-        animation: shaunCelebInOutV4 ${{DURATION}}ms ease-out forwards;
+        animation: shaunCelebInOutV5 ${{DURATION}}ms ease-out forwards;
         pointer-events: none !important;
         font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
       }}
