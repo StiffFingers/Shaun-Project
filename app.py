@@ -314,8 +314,9 @@ def page_new_entry() -> None:
             value=date.today(),
             label_visibility="collapsed",
             key=f"{pfx}date",
-            format="MMM DD, YYYY",
+            format="MM/DD/YYYY",
         )
+        st.caption(format_display_date(entry_date))
     with c2:
         _req_label("Job site")
         project_name = st.text_input(
@@ -769,8 +770,9 @@ def _edit_entry_form(
                 "Date",
                 value=date.fromisoformat(entry["entry_date"]),
                 key=f"ed_date_{entry['id']}",
-                format="MMM DD, YYYY",
+                format="MM/DD/YYYY",
             )
+            st.caption(format_display_date(entry_date))
         with c2:
             worker_name = st.selectbox(
                 "Worker",
