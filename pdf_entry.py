@@ -197,21 +197,36 @@ def _fmt_hours(entry: dict[str, Any]) -> str:
         return str(h or "—")
 
 
-def _people_rows(journal: dict[str, Any]) -> list[tuple[str, str]]:
-    """Return (worker_name, hours_str) for PDF hours section."""
+def _people_rows(journal: dict[str, Any]) -> list[list[str]]:
+    """Return table rows: name, start, finish, break, total for PDF hours section."""
     people = journal.get("people") or []
     if people:
         rows = []
         for p in people:
             name = p.get("worker_name") or "—"
+            start = p.get("start_time") or "—"
+            finish = p.get("finish_time") or "—"
             try:
-                hrs = f"{float(p.get('hours_worked') or 0):g}"
+                brk = int(p.get("break_minutes") or 0)
+                brk_s = f"{brk} min"
+            except (TypeError, ValueError):
+                brk_s = "—"
+            try:
+                hrs = f"{float(p.get('hours_worked') or 0):g} h"
             except (TypeError, ValueError):
                 hrs = str(p.get("hours_worked") or "—")
-            rows.append((name, hrs))
+            rows.append([name, start, finish, brk_s, hrs])
         return rows
     # Legacy single person-row
-    return [(journal.get("worker_name") or "—", _fmt_hours(journal))]
+    return [
+        [
+            journal.get("worker_name") or "—",
+            journal.get("start_time") or "—",
+            journal.get("finish_time") or "—",
+            f"{int(journal.get('break_minutes') or 0)} min",
+            f"{_fmt_hours(journal)} h",
+        ]
+    ]
 
 
 def build_entry_pdf(entry: dict[str, Any]) -> bytes:
@@ -279,28 +294,33 @@ def build_entry_pdf(entry: dict[str, Any]) -> bytes:
     # Hours by person — all people on this journal
     story.append(Spacer(1, 6))
     story.append(Paragraph("Hours", styles["label"]))
-    hour_lines = []
-    for name, hrs in _people_rows(entry):
+    header = [
+        Paragraph("<b>Name</b>", styles["small"]),
+        Paragraph("<b>Start</b>", styles["small"]),
+        Paragraph("<b>Finish</b>", styles["small"]),
+        Paragraph("<b>Break</b>", styles["small"]),
+        Paragraph("<b>Total</b>", styles["small"]),
+    ]
+    hour_lines = [header]
+    for row in _people_rows(entry):
         hour_lines.append(
-            [
-                Paragraph(f"<b>{_esc(name)}</b>", styles["value"]),
-                Paragraph(_esc(hrs), styles["value"]),
-            ]
+            [Paragraph(_esc(cell), styles["value"]) for cell in row]
         )
-    if not hour_lines:
-        hour_lines = [[Paragraph("—", styles["value"]), Paragraph("—", styles["value"])]]
+    if len(hour_lines) == 1:
+        hour_lines.append(
+            [Paragraph("—", styles["value"]) for _ in range(5)]
+        )
 
-    hours_people_table = Table(
-        hour_lines,
-        colWidths=[CONTENT_W - 2.0 * inch, 1.4 * inch],
-    )
+    col_w = [CONTENT_W * 0.32, CONTENT_W * 0.15, CONTENT_W * 0.15, CONTENT_W * 0.18, CONTENT_W * 0.20]
+    hours_people_table = Table(hour_lines, colWidths=col_w)
     hours_people_table.setStyle(
         TableStyle(
             [
-                ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("LEFTPADDING", (0, 0), (-1, -1), 2),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 2),
                 ("TOPPADDING", (0, 0), (-1, -1), 2),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ("LINEBELOW", (0, 0), (-1, 0), 0.4, BORDER),
             ]
         )
     )
@@ -308,7 +328,7 @@ def build_entry_pdf(entry: dict[str, Any]) -> bytes:
         [
             [
                 Paragraph(
-                    "Hours for each crew member on this journal entry.",
+                    "Start, finish, lunch/break, and calculated total for each person.",
                     styles["small"],
                 )
             ],

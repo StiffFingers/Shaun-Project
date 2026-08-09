@@ -32,6 +32,43 @@ st.set_page_config(
 
 TEMPERATURE_C_OPTIONS = list(range(-5, 41))  # -5°C through 40°C
 
+# 15-minute clock options; "—" means person not on site that day
+TIME_BLANK = "—"
+TIME_OPTIONS = [TIME_BLANK] + [
+    f"{h:02d}:{m:02d}" for h in range(0, 24) for m in (0, 15, 30, 45)
+]
+# Lunch / break length in minutes (0–4 hours)
+BREAK_MINUTE_OPTIONS = list(range(0, 241, 15))
+
+
+def _calc_worked_hours(start: str, finish: str, break_minutes: int) -> float:
+    """(finish - start) minus break, in hours. Supports overnight shifts."""
+    if not start or not finish or start == TIME_BLANK or finish == TIME_BLANK:
+        return 0.0
+    try:
+        sh, sm = map(int, start.split(":"))
+        fh, fm = map(int, finish.split(":"))
+    except (TypeError, ValueError):
+        return 0.0
+    start_m = sh * 60 + sm
+    finish_m = fh * 60 + fm
+    if finish_m < start_m:
+        finish_m += 24 * 60
+    try:
+        brk = int(break_minutes or 0)
+    except (TypeError, ValueError):
+        brk = 0
+    worked = finish_m - start_m - max(0, brk)
+    return round(max(0, worked) / 60.0, 2)
+
+
+def _break_label(minutes: int) -> str:
+    m = int(minutes)
+    if m < 60:
+        return f"{m} min"
+    h, r = divmod(m, 60)
+    return f"{h}h {r:02d}m" if r else f"{h}h"
+
 
 def render_header(title: str, caption: str | None = None) -> None:
     """Company logo + page heading (replaces crane emoji)."""
@@ -258,120 +295,146 @@ def page_new_entry() -> None:
     if "new_entry_form_id" not in st.session_state:
         st.session_state["new_entry_form_id"] = 0
     form_id = st.session_state["new_entry_form_id"]
+    pfx = f"ne{form_id}_"
 
-    # clear_on_submit=False so failed validation does not wipe what the user typed
-    with st.form(f"new_entry_{form_id}", clear_on_submit=False):
-        c1, c2 = st.columns(2)
-        with c1:
-            _req_label("Date")
-            entry_date = st.date_input(
-                "Date",
-                value=date.today(),
-                label_visibility="collapsed",
-            )
-        with c2:
-            _req_label("Job site")
-            project_name = st.text_input(
-                "Job site",
-                placeholder="Type job site name…",
-                label_visibility="collapsed",
-                help=(
-                    "Type the job site. Matching names reuse an existing site; "
-                    "a new name creates one automatically."
-                    + (
-                        f" Known sites: {', '.join(known_sites[:12])}"
-                        + ("…" if len(known_sites) > 12 else "")
-                        if known_sites
-                        else ""
-                    )
-                ),
-            )
-
-        _req_label("Log entry by")
-        logged_by_name = st.selectbox(
-            "Log entry by",
-            worker_names,
+    # No st.form wrapper: time widgets must rerun live so totals update as times change.
+    # Keys use form_id so a successful save remounts empty fields.
+    c1, c2 = st.columns(2)
+    with c1:
+        _req_label("Date")
+        entry_date = st.date_input(
+            "Date",
+            value=date.today(),
             label_visibility="collapsed",
-            help="Who is filling out this log (the person submitting).",
+            key=f"{pfx}date",
         )
-        wcol, tcol = st.columns(2)
-        with wcol:
-            _req_label("Weather")
-            weather = st.text_input(
-                "Weather",
-                placeholder="e.g. Sunny, light rain, overcast…",
-                label_visibility="collapsed",
-            )
-        with tcol:
-            _req_label("Temperature (°C)")
-            temperature_c = st.selectbox(
-                "Temperature (°C)",
-                TEMPERATURE_C_OPTIONS,
-                index=TEMPERATURE_C_OPTIONS.index(15),
-                label_visibility="collapsed",
-            )
-
-        hours_inputs: dict[str, float] = {}
-        with st.container(border=True):
-            st.caption(
-                "Enter hours for each active crew member who worked. "
-                "Leave at 0 if they did not work."
-            )
-            for name in worker_names:
-                # Name + hours close together (not stretched full width)
-                left, right, _pad = st.columns([2.2, 1.1, 2.7])
-                with left:
-                    st.markdown(
-                        f"<div style='padding-top:0.55rem;font-weight:500;'>{name}</div>",
-                        unsafe_allow_html=True,
-                    )
-                with right:
-                    hours_inputs[name] = st.number_input(
-                        f"Hours — {name}",
-                        min_value=0.0,
-                        max_value=24.0,
-                        value=0.0,
-                        step=0.25,
-                        key=f"new_hrs_{workers[name]}",
-                        label_visibility="collapsed",
-                    )
-
-        _req_label("Work performed")
-        work_done = st.text_area(
-            "Work performed",
-            placeholder="Detail of today jobsite activities",
-            height=120,
+    with c2:
+        _req_label("Job site")
+        project_name = st.text_input(
+            "Job site",
+            placeholder="Type job site name…",
             label_visibility="collapsed",
-        )
-        _req_label("Health, Safety, Environment")
-        safety = st.text_area(
-            "Health, Safety, Environment",
-            placeholder="Incidents, toolbox talk topics, PPE used",
-            height=80,
-            label_visibility="collapsed",
-        )
-        crew_notes = st.text_area(
-            "Visitor / Subcontractors",
-            placeholder="Visitors, subcontractors, extra headcount notes…",
-            height=80,
-        )
-        materials_notes = st.text_area(
-            "Materials",
-            placeholder="Deliveries, materials used, shortages…",
-            height=80,
-        )
-        issues = st.text_area(
-            "Issues / delays",
-            placeholder="Weather delays, missing materials, change orders, access problems…",
-            height=80,
-        )
-        action_follow_up = st.text_area(
-            "Action / Follow up Items",
-            placeholder="Follow-ups, open actions, items for next shift…",
-            height=80,
+            key=f"{pfx}site",
+            help=(
+                "Type the job site. Matching names reuse an existing site; "
+                "a new name creates one automatically."
+                + (
+                    f" Known sites: {', '.join(known_sites[:12])}"
+                    + ("…" if len(known_sites) > 12 else "")
+                    if known_sites
+                    else ""
+                )
+            ),
         )
 
-        submitted = st.form_submit_button("Save entry", type="primary", use_container_width=True)
+    _req_label("Log entry by")
+    logged_by_name = st.selectbox(
+        "Log entry by",
+        worker_names,
+        label_visibility="collapsed",
+        key=f"{pfx}logged_by",
+        help="Who is filling out this log (the person submitting).",
+    )
+    wcol, tcol = st.columns(2)
+    with wcol:
+        _req_label("Weather")
+        weather = st.text_input(
+            "Weather",
+            placeholder="e.g. Sunny, light rain, overcast…",
+            label_visibility="collapsed",
+            key=f"{pfx}weather",
+        )
+    with tcol:
+        _req_label("Temperature (°C)")
+        temperature_c = st.selectbox(
+            "Temperature (°C)",
+            TEMPERATURE_C_OPTIONS,
+            index=TEMPERATURE_C_OPTIONS.index(15),
+            label_visibility="collapsed",
+            key=f"{pfx}temp",
+        )
+
+    st.markdown("##### Crew times")
+    with st.container(border=True):
+        st.caption(
+            "Set start, finish, and lunch/break (15‑minute steps) for each person. "
+            "Total is calculated automatically and cannot be edited. "
+            "Leave start/finish as — if they did not work."
+        )
+        for name in worker_names:
+            wid = workers[name]
+            st.markdown(f"**{name}**")
+            c1, c2, c3, c4 = st.columns([1.2, 1.2, 1.2, 1.0])
+            with c1:
+                start = st.selectbox(
+                    "Start time",
+                    TIME_OPTIONS,
+                    key=f"{pfx}st_{wid}",
+                )
+            with c2:
+                finish = st.selectbox(
+                    "Finish time",
+                    TIME_OPTIONS,
+                    key=f"{pfx}fn_{wid}",
+                )
+            with c3:
+                brk = st.selectbox(
+                    "Lunch / break",
+                    BREAK_MINUTE_OPTIONS,
+                    format_func=_break_label,
+                    key=f"{pfx}br_{wid}",
+                )
+            total = _calc_worked_hours(start, finish, brk)
+            with c4:
+                st.markdown(
+                    f"<div style='padding-top:1.6rem;font-weight:600;'>"
+                    f"Total: {total:g} h</div>",
+                    unsafe_allow_html=True,
+                )
+            st.divider()
+
+    _req_label("Work performed")
+    work_done = st.text_area(
+        "Work performed",
+        placeholder="Detail of today jobsite activities",
+        height=120,
+        label_visibility="collapsed",
+        key=f"{pfx}work",
+    )
+    _req_label("Health, Safety, Environment")
+    safety = st.text_area(
+        "Health, Safety, Environment",
+        placeholder="Incidents, toolbox talk topics, PPE used",
+        height=80,
+        label_visibility="collapsed",
+        key=f"{pfx}hse",
+    )
+    crew_notes = st.text_area(
+        "Visitor / Subcontractors",
+        placeholder="Visitors, subcontractors, extra headcount notes…",
+        height=80,
+        key=f"{pfx}visitors",
+    )
+    materials_notes = st.text_area(
+        "Materials",
+        placeholder="Deliveries, materials used, shortages…",
+        height=80,
+        key=f"{pfx}materials",
+    )
+    issues = st.text_area(
+        "Issues / delays",
+        placeholder="Weather delays, missing materials, change orders, access problems…",
+        height=80,
+        key=f"{pfx}issues",
+    )
+    action_follow_up = st.text_area(
+        "Action / Follow up Items",
+        placeholder="Follow-ups, open actions, items for next shift…",
+        height=80,
+        key=f"{pfx}followup",
+    )
+
+    submitted = st.button("Save entry", type="primary", use_container_width=True)
 
     if submitted:
         missing: list[str] = []
@@ -394,12 +457,26 @@ def page_new_entry() -> None:
                 "Please fill in all required fields: " + ", ".join(missing) + "."
             )
             return
-        hours_by_id = {
-            workers[name]: float(hrs or 0) for name, hrs in hours_inputs.items()
-        }
-        people_with_hours = [n for n, h in hours_inputs.items() if float(h or 0) > 0]
+        hours_by_id: dict[int, dict] = {}
+        people_with_hours: list[str] = []
+        for name in worker_names:
+            wid = workers[name]
+            start = st.session_state.get(f"{pfx}st_{wid}", TIME_BLANK)
+            finish = st.session_state.get(f"{pfx}fn_{wid}", TIME_BLANK)
+            brk = st.session_state.get(f"{pfx}br_{wid}", 0)
+            total = _calc_worked_hours(start, finish, brk)
+            hours_by_id[wid] = {
+                "start_time": "" if start == TIME_BLANK else start,
+                "finish_time": "" if finish == TIME_BLANK else finish,
+                "break_minutes": int(brk or 0),
+                "hours_worked": total,
+            }
+            if total > 0:
+                people_with_hours.append(name)
         if not people_with_hours:
-            st.error("Enter hours greater than 0 for at least one person.")
+            st.error(
+                "Set start and finish times so at least one person has total hours above 0."
+            )
             return
         try:
             project_id = db.get_or_create_project(project_name)
@@ -427,17 +504,18 @@ def page_new_entry() -> None:
             return
 
         detail = ", ".join(
-            f"{n} ({hours_inputs[n]:g}h)" for n in people_with_hours
+            f"{n} ({hours_by_id[workers[n]]['hours_worked']:g}h)"
+            for n in people_with_hours
         )
-        # Reset form only after success (keep values when validation fails)
         st.session_state["new_entry_success_msg"] = True
         st.session_state["new_entry_success_detail"] = (
-            f"Saved {len(ids)} log line(s) for {entry_date.isoformat()} "
+            f"Saved journal for {entry_date.isoformat()} "
             f"@ {project_name.strip()} (logged by {logged_by_name}): {detail}."
         )
         st.session_state["new_entry_form_id"] = form_id + 1
+        # Drop old widget keys so the next form_id starts clean
         for key in list(st.session_state.keys()):
-            if str(key).startswith("new_hrs_"):
+            if str(key).startswith(pfx):
                 del st.session_state[key]
         st.rerun()
 
@@ -540,7 +618,10 @@ def page_journal() -> None:
                     else ""
                 )
                 hours_summary = ", ".join(
-                    f"{p.get('worker_name')} ({float(p.get('hours_worked') or 0):g}h)"
+                    f"{p.get('worker_name')} "
+                    f"({p.get('start_time') or '—'}–{p.get('finish_time') or '—'}, "
+                    f"brk {_break_label(int(p.get('break_minutes') or 0))}, "
+                    f"{float(p.get('hours_worked') or 0):g}h)"
                     for p in people
                 )
                 st.markdown(
@@ -683,14 +764,48 @@ def _edit_entry_form(
                 index=TEMPERATURE_C_OPTIONS.index(temp_default),
                 key=f"ed_temp_{entry['id']}",
             )
-        hours = st.number_input(
-            "Hours worked",
-            min_value=0.0,
-            max_value=24.0,
-            value=float(entry["hours_worked"] or 0),
-            step=0.25,
-            key=f"ed_hours_{entry['id']}",
-        )
+        st.caption("Times use 15‑minute steps. Total is calculated and not editable.")
+        tc1, tc2, tc3, tc4 = st.columns(4)
+        st_raw = entry.get("start_time") or TIME_BLANK
+        fn_raw = entry.get("finish_time") or TIME_BLANK
+        if st_raw not in TIME_OPTIONS:
+            st_raw = TIME_BLANK
+        if fn_raw not in TIME_OPTIONS:
+            fn_raw = TIME_BLANK
+        try:
+            br_raw = int(entry.get("break_minutes") or 0)
+        except (TypeError, ValueError):
+            br_raw = 0
+        if br_raw not in BREAK_MINUTE_OPTIONS:
+            br_raw = min(BREAK_MINUTE_OPTIONS, key=lambda x: abs(x - br_raw))
+        with tc1:
+            start = st.selectbox(
+                "Start time",
+                TIME_OPTIONS,
+                index=TIME_OPTIONS.index(st_raw),
+                key=f"ed_st_{entry['id']}",
+            )
+        with tc2:
+            finish = st.selectbox(
+                "Finish time",
+                TIME_OPTIONS,
+                index=TIME_OPTIONS.index(fn_raw),
+                key=f"ed_fn_{entry['id']}",
+            )
+        with tc3:
+            brk = st.selectbox(
+                "Lunch / break",
+                BREAK_MINUTE_OPTIONS,
+                index=BREAK_MINUTE_OPTIONS.index(br_raw),
+                format_func=_break_label,
+                key=f"ed_br_{entry['id']}",
+            )
+        hours = _calc_worked_hours(start, finish, brk)
+        with tc4:
+            st.markdown(
+                f"<div style='padding-top:1.6rem;font-weight:600;'>Total: {hours:g} h</div>",
+                unsafe_allow_html=True,
+            )
 
         work_done = st.text_area(
             "Work performed",
@@ -754,6 +869,9 @@ def _edit_entry_form(
             weather=weather,
             temperature_c=float(temperature_c),
             hours_worked=hours,
+            start_time="" if start == TIME_BLANK else start,
+            finish_time="" if finish == TIME_BLANK else finish,
+            break_minutes=int(brk or 0),
             work_done=work_done,
             crew_notes=crew_notes,
             materials_notes=materials_notes,

@@ -38,6 +38,9 @@ CREATE TABLE IF NOT EXISTS entries (
     entry_group_id TEXT,
     weather TEXT NOT NULL DEFAULT '',
     temperature_c REAL,
+    start_time TEXT NOT NULL DEFAULT '',
+    finish_time TEXT NOT NULL DEFAULT '',
+    break_minutes INTEGER NOT NULL DEFAULT 0,
     hours_worked REAL NOT NULL DEFAULT 0,
     work_done TEXT NOT NULL DEFAULT '',
     crew_notes TEXT NOT NULL DEFAULT '',
@@ -294,6 +297,14 @@ def init_db() -> None:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_entries_group ON entries(entry_group_id)"
             )
+        if "start_time" not in cols:
+            conn.execute("ALTER TABLE entries ADD COLUMN start_time TEXT NOT NULL DEFAULT ''")
+        if "finish_time" not in cols:
+            conn.execute("ALTER TABLE entries ADD COLUMN finish_time TEXT NOT NULL DEFAULT ''")
+        if "break_minutes" not in cols:
+            conn.execute(
+                "ALTER TABLE entries ADD COLUMN break_minutes INTEGER NOT NULL DEFAULT 0"
+            )
 
 
 def _table_is_empty(table: str) -> bool:
@@ -542,6 +553,9 @@ def add_entry(
     weather: str = "",
     temperature_c: Optional[float] = None,
     hours_worked: float = 0.0,
+    start_time: str = "",
+    finish_time: str = "",
+    break_minutes: int = 0,
     work_done: str = "",
     crew_notes: str = "",
     materials_notes: str = "",
@@ -564,6 +578,9 @@ def add_entry(
         "weather": weather.strip(),
         "temperature_c": temp_val,
         "hours_worked": float(hours_worked),
+        "start_time": (start_time or "").strip(),
+        "finish_time": (finish_time or "").strip(),
+        "break_minutes": int(break_minutes or 0),
         "work_done": work_done.strip(),
         "crew_notes": crew_notes.strip(),
         "materials_notes": materials_notes.strip(),
@@ -591,9 +608,10 @@ def add_entry(
             """
             INSERT INTO entries (
                 entry_date, worker_id, project_id, logged_by_worker_id, entry_group_id,
-                weather, temperature_c, hours_worked, work_done, crew_notes, materials_notes,
-                issues_delays, safety_notes, action_follow_up, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                weather, temperature_c, start_time, finish_time, break_minutes, hours_worked,
+                work_done, crew_notes, materials_notes, issues_delays, safety_notes,
+                action_follow_up, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 entry_date_s,
@@ -603,6 +621,9 @@ def add_entry(
                 str(entry_group_id) if entry_group_id else None,
                 payload["weather"],
                 temp_val,
+                payload["start_time"],
+                payload["finish_time"],
+                payload["break_minutes"],
                 payload["hours_worked"],
                 payload["work_done"],
                 payload["crew_notes"],
@@ -620,7 +641,7 @@ def add_entry(
 def add_entries_for_crew(
     entry_date: date | str,
     project_id: int,
-    hours_by_worker_id: dict[int, float],
+    hours_by_worker_id: dict[int, Any],
     logged_by_worker_id: int,
     weather: str = "",
     temperature_c: Optional[float] = None,
@@ -631,16 +652,35 @@ def add_entries_for_crew(
     safety_notes: str = "",
     action_follow_up: str = "",
 ) -> list[int]:
-    """Create one journal row per worker with hours > 0 (same entry_group_id). Returns ids."""
+    """Create one journal row per worker with hours > 0 (same entry_group_id).
+
+    hours_by_worker_id values may be a float (legacy) or a dict with
+    start_time, finish_time, break_minutes, hours_worked.
+    """
     import uuid
 
     group_id = str(uuid.uuid4())
     ids: list[int] = []
-    for worker_id, hours in hours_by_worker_id.items():
-        try:
-            h = float(hours or 0)
-        except (TypeError, ValueError):
-            h = 0.0
+    for worker_id, raw in hours_by_worker_id.items():
+        start_time = ""
+        finish_time = ""
+        break_minutes = 0
+        if isinstance(raw, dict):
+            start_time = str(raw.get("start_time") or "")
+            finish_time = str(raw.get("finish_time") or "")
+            try:
+                break_minutes = int(raw.get("break_minutes") or 0)
+            except (TypeError, ValueError):
+                break_minutes = 0
+            try:
+                h = float(raw.get("hours_worked") or 0)
+            except (TypeError, ValueError):
+                h = 0.0
+        else:
+            try:
+                h = float(raw or 0)
+            except (TypeError, ValueError):
+                h = 0.0
         if h <= 0:
             continue
         ids.append(
@@ -651,6 +691,9 @@ def add_entries_for_crew(
                 weather=weather,
                 temperature_c=temperature_c,
                 hours_worked=h,
+                start_time=start_time,
+                finish_time=finish_time,
+                break_minutes=break_minutes,
                 work_done=work_done,
                 crew_notes=crew_notes,
                 materials_notes=materials_notes,
@@ -672,6 +715,9 @@ def update_entry(
     weather: str = "",
     temperature_c: Optional[float] = None,
     hours_worked: float = 0.0,
+    start_time: str = "",
+    finish_time: str = "",
+    break_minutes: int = 0,
     work_done: str = "",
     crew_notes: str = "",
     materials_notes: str = "",
@@ -691,6 +737,9 @@ def update_entry(
         "weather": weather.strip(),
         "temperature_c": temp_val,
         "hours_worked": float(hours_worked),
+        "start_time": (start_time or "").strip(),
+        "finish_time": (finish_time or "").strip(),
+        "break_minutes": int(break_minutes or 0),
         "work_done": work_done.strip(),
         "crew_notes": crew_notes.strip(),
         "materials_notes": materials_notes.strip(),
@@ -711,7 +760,8 @@ def update_entry(
             """
             UPDATE entries SET
                 entry_date = ?, worker_id = ?, project_id = ?, weather = ?,
-                temperature_c = ?, hours_worked = ?, work_done = ?, crew_notes = ?,
+                temperature_c = ?, start_time = ?, finish_time = ?, break_minutes = ?,
+                hours_worked = ?, work_done = ?, crew_notes = ?,
                 materials_notes = ?, issues_delays = ?, safety_notes = ?,
                 action_follow_up = ?, updated_at = ?
             WHERE id = ?
@@ -722,6 +772,9 @@ def update_entry(
                 project_id,
                 payload["weather"],
                 temp_val,
+                payload["start_time"],
+                payload["finish_time"],
+                payload["break_minutes"],
                 payload["hours_worked"],
                 payload["work_done"],
                 payload["crew_notes"],
@@ -924,6 +977,9 @@ def group_journal_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]
                 "worker_id": e.get("worker_id"),
                 "worker_name": e.get("worker_name") or "",
                 "hours_worked": hrs,
+                "start_time": e.get("start_time") or "",
+                "finish_time": e.get("finish_time") or "",
+                "break_minutes": int(e.get("break_minutes") or 0),
             }
         )
         g["total_hours"] += hrs
