@@ -362,42 +362,70 @@ def page_new_entry() -> None:
             "Total is calculated automatically and cannot be edited. "
             "Leave start/finish as — if they did not work."
         )
+        # Column weights: name (fixed left) + start close beside name + finish + break + total
+        _time_cols = [1.35, 0.95, 0.95, 0.95, 0.85]
+        # Header labels once (not repeated per worker)
+        h0, h1, h2, h3, h4 = st.columns(_time_cols)
+        with h0:
+            st.markdown("&nbsp;", unsafe_allow_html=True)
+        with h1:
+            st.markdown(
+                "<div style='font-size:0.85rem;font-weight:600;'>Start time</div>",
+                unsafe_allow_html=True,
+            )
+        with h2:
+            st.markdown(
+                "<div style='font-size:0.85rem;font-weight:600;'>Finish time</div>",
+                unsafe_allow_html=True,
+            )
+        with h3:
+            st.markdown(
+                "<div style='font-size:0.85rem;font-weight:600;'>Lunch / break</div>",
+                unsafe_allow_html=True,
+            )
+        with h4:
+            st.markdown(
+                "<div style='font-size:0.85rem;font-weight:600;'>Total</div>",
+                unsafe_allow_html=True,
+            )
+
         for name in worker_names:
             wid = workers[name]
-            # Name on same row as start / finish / break / total
-            ncol, c1, c2, c3, c4 = st.columns([1.6, 1.1, 1.1, 1.1, 0.9])
+            ncol, c1, c2, c3, c4 = st.columns(_time_cols)
             with ncol:
                 st.markdown(
-                    f"<div style='padding-top:1.65rem;font-weight:600;'>{name}</div>",
+                    f"<div style='padding-top:0.45rem;font-weight:600;'>{name}</div>",
                     unsafe_allow_html=True,
                 )
             with c1:
                 start = st.selectbox(
-                    "Start time",
+                    f"Start — {name}",
                     TIME_OPTIONS,
                     key=f"{pfx}st_{wid}",
+                    label_visibility="collapsed",
                 )
             with c2:
                 finish = st.selectbox(
-                    "Finish time",
+                    f"Finish — {name}",
                     TIME_OPTIONS,
                     key=f"{pfx}fn_{wid}",
+                    label_visibility="collapsed",
                 )
             with c3:
                 brk = st.selectbox(
-                    "Lunch / break",
+                    f"Break — {name}",
                     BREAK_MINUTE_OPTIONS,
                     format_func=_break_label,
                     key=f"{pfx}br_{wid}",
+                    label_visibility="collapsed",
                 )
             total = _calc_worked_hours(start, finish, brk)
             with c4:
                 st.markdown(
-                    f"<div style='padding-top:1.65rem;font-weight:600;'>"
-                    f"Total: {total:g} hr</div>",
+                    f"<div style='padding-top:0.45rem;font-weight:600;'>"
+                    f"{total:g} hr</div>",
                     unsafe_allow_html=True,
                 )
-            st.divider()
 
     _req_label("Work performed")
     work_done = st.text_area(
