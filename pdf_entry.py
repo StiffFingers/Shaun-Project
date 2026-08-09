@@ -28,6 +28,11 @@ LIGHT = colors.HexColor("#F4F7FA")
 BORDER = colors.HexColor("#CCCCCC")
 RED = colors.HexColor("#C62828")
 
+# Letter page with 0.75" side margins → 7.0" content width
+CONTENT_W = 7.0 * inch
+COL_GAP = 0.2 * inch
+HALF_W = (CONTENT_W - COL_GAP) / 2
+
 
 def _styles():
     base = getSampleStyleSheet()
@@ -112,9 +117,9 @@ def _label(styles, text: str, required: bool = False) -> Paragraph:
     return Paragraph(_esc(text), styles["label"])
 
 
-def _value_box(styles, text: Any, min_height: float = 28) -> Table:
+def _value_box(styles, text: Any, width: float = CONTENT_W) -> Table:
     body = Paragraph(_esc(text) if text not in (None, "") else "—", styles["box"])
-    t = Table([[body]], colWidths=[6.5 * inch])
+    t = Table([[body]], colWidths=[width])
     t.setStyle(
         TableStyle(
             [
@@ -128,33 +133,46 @@ def _value_box(styles, text: Any, min_height: float = 28) -> Table:
             ]
         )
     )
-    # min height via spacer inside if empty long fields
     return t
 
 
 def _two_col(styles, left_label, left_val, right_label, right_val, left_req=False, right_req=False):
     left = [
         _label(styles, left_label, left_req),
-        _value_box(styles, left_val),
+        _value_box(styles, left_val, width=HALF_W),
     ]
     right = [
         _label(styles, right_label, right_req),
-        _value_box(styles, right_val),
+        _value_box(styles, right_val, width=HALF_W),
     ]
-    # Stack labels+values into mini tables then side by side
+
     def stack(parts):
         data = [[p] for p in parts]
-        t = Table(data, colWidths=[3.15 * inch])
-        t.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0)]))
+        t = Table(data, colWidths=[HALF_W])
+        t.setStyle(
+            TableStyle(
+                [
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                    ("TOPPADDING", (0, 0), (-1, -1), 0),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                ]
+            )
+        )
         return t
 
-    row = Table([[stack(left), stack(right)]], colWidths=[3.25 * inch, 3.25 * inch])
+    row = Table(
+        [[stack(left), stack(right)]],
+        colWidths=[HALF_W, HALF_W],
+    )
     row.setStyle(
         TableStyle(
             [
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                ("LEFTPADDING", (0, 0), (0, 0), 0),
+                ("RIGHTPADDING", (0, 0), (0, 0), COL_GAP / 2),
+                ("LEFTPADDING", (1, 0), (1, 0), COL_GAP / 2),
+                ("RIGHTPADDING", (1, 0), (1, 0), 0),
             ]
         )
     )
@@ -259,11 +277,11 @@ def build_entry_pdf(entry: dict[str, Any]) -> bytes:
                             Paragraph(_fmt_hours(entry), styles["value"]),
                         ]
                     ],
-                    colWidths=[4.5 * inch, 1.5 * inch],
+                    colWidths=[CONTENT_W - 2.0 * inch, 1.4 * inch],
                 )
             ],
         ],
-        colWidths=[6.5 * inch],
+        colWidths=[CONTENT_W],
     )
     hours_inner.setStyle(
         TableStyle(
