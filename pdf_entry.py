@@ -291,7 +291,7 @@ def build_entry_pdf(entry: dict[str, Any]) -> bytes:
             styles,
             "Date",
             format_display_date(entry.get("entry_date")),
-            "Job site",
+            "Job",
             entry.get("project_name") or "—",
             left_req=True,
             right_req=True,
