@@ -54,6 +54,8 @@ def _styles():
             spaceBefore=6,
             spaceAfter=2,
             leading=12,
+            leftIndent=0,
+            firstLineIndent=0,
         ),
         "req": ParagraphStyle(
             "FieldLabelReq",
@@ -64,6 +66,8 @@ def _styles():
             spaceBefore=6,
             spaceAfter=2,
             leading=12,
+            leftIndent=0,
+            firstLineIndent=0,
         ),
         "value": ParagraphStyle(
             "FieldValue",
@@ -137,46 +141,41 @@ def _value_box(styles, text: Any, width: float = CONTENT_W) -> Table:
 
 
 def _two_col(styles, left_label, left_val, right_label, right_val, left_req=False, right_req=False):
-    left = [
-        _label(styles, left_label, left_req),
-        _value_box(styles, left_val, width=HALF_W),
+    """Two fields on one row; total width == CONTENT_W so left edge matches full-width fields."""
+    zero = [
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
     ]
-    right = [
-        _label(styles, right_label, right_req),
-        _value_box(styles, right_val, width=HALF_W),
+    # left | gap | right  → exactly CONTENT_W wide, left column starts at 0
+    data = [
+        [
+            _label(styles, left_label, left_req),
+            "",
+            _label(styles, right_label, right_req),
+        ],
+        [
+            _value_box(styles, left_val, width=HALF_W),
+            "",
+            _value_box(styles, right_val, width=HALF_W),
+        ],
     ]
-
-    def stack(parts):
-        data = [[p] for p in parts]
-        t = Table(data, colWidths=[HALF_W])
-        t.setStyle(
-            TableStyle(
-                [
-                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                    ("TOPPADDING", (0, 0), (-1, -1), 0),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-                ]
-            )
-        )
-        return t
-
-    row = Table(
-        [[stack(left), stack(right)]],
-        colWidths=[HALF_W, HALF_W],
-    )
+    row = Table(data, colWidths=[HALF_W, COL_GAP, HALF_W])
     row.setStyle(
         TableStyle(
-            [
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("LEFTPADDING", (0, 0), (0, 0), 0),
-                ("RIGHTPADDING", (0, 0), (0, 0), COL_GAP / 2),
-                ("LEFTPADDING", (1, 0), (1, 0), COL_GAP / 2),
-                ("RIGHTPADDING", (1, 0), (1, 0), 0),
+            zero
+            + [
+                ("BOTTOMPADDING", (0, 0), (-1, 0), 2),  # under labels
+                ("TOPPADDING", (0, 1), (-1, 1), 0),
             ]
         )
     )
-    return row
+    # Wrap so the outer flowable is exactly content width (left-aligned with page)
+    wrapper = Table([[row]], colWidths=[CONTENT_W])
+    wrapper.setStyle(TableStyle(zero))
+    return wrapper
 
 
 def _fmt_temp(entry: dict[str, Any]) -> str:
