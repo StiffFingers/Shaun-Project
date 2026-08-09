@@ -240,6 +240,11 @@ def page_new_entry() -> None:
         "Fields marked with a red * are required."
     )
 
+    # After a successful save we remount the form (empty). On validation errors we keep values.
+    if st.session_state.pop("new_entry_success_msg", None):
+        st.success(st.session_state.pop("new_entry_success_detail", "Entry saved."))
+        celebrate_entry_saved()
+
     workers = _worker_options()
     known_sites = list(_project_options(active_only=False).keys())
 
@@ -249,7 +254,12 @@ def page_new_entry() -> None:
 
     worker_names = list(workers.keys())
 
-    with st.form("new_entry", clear_on_submit=True):
+    if "new_entry_form_id" not in st.session_state:
+        st.session_state["new_entry_form_id"] = 0
+    form_id = st.session_state["new_entry_form_id"]
+
+    # clear_on_submit=False so failed validation does not wipe what the user typed
+    with st.form(f"new_entry_{form_id}", clear_on_submit=False):
         c1, c2 = st.columns(2)
         with c1:
             _req_label("Date")
@@ -418,11 +428,17 @@ def page_new_entry() -> None:
         detail = ", ".join(
             f"{n} ({hours_inputs[n]:g}h)" for n in people_with_hours
         )
-        st.success(
+        # Reset form only after success (keep values when validation fails)
+        st.session_state["new_entry_success_msg"] = True
+        st.session_state["new_entry_success_detail"] = (
             f"Saved {len(ids)} log line(s) for {entry_date.isoformat()} "
             f"@ {project_name.strip()} (logged by {logged_by_name}): {detail}."
         )
-        celebrate_entry_saved()
+        st.session_state["new_entry_form_id"] = form_id + 1
+        for key in list(st.session_state.keys()):
+            if str(key).startswith("new_hrs_"):
+                del st.session_state[key]
+        st.rerun()
 
 
 def page_journal() -> None:
