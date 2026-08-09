@@ -12,7 +12,12 @@ import streamlit.components.v1 as components
 import auth
 import db
 from export import build_excel
-from pdf_entry import build_entry_pdf, build_entries_pdf_zip, entry_pdf_filename
+from pdf_entry import (
+    build_entry_pdf,
+    build_entries_pdf_zip,
+    entry_pdf_filename,
+    format_display_date,
+)
 
 ASSETS_DIR = Path(__file__).parent / "assets"
 LOGO_PATH = ASSETS_DIR / "in-spec-logo.png"
@@ -309,6 +314,7 @@ def page_new_entry() -> None:
             value=date.today(),
             label_visibility="collapsed",
             key=f"{pfx}date",
+            format="MMM DD, YYYY",
         )
     with c2:
         _req_label("Job site")
@@ -543,7 +549,7 @@ def page_new_entry() -> None:
         )
         st.session_state["new_entry_success_msg"] = True
         st.session_state["new_entry_success_detail"] = (
-            f"Saved journal for {entry_date.isoformat()} "
+            f"Saved journal for {format_display_date(entry_date)} "
             f"@ {project_name.strip()} (logged by {logged_by_name}): {detail}."
         )
         st.session_state["new_entry_form_id"] = form_id + 1
@@ -659,9 +665,9 @@ def page_journal() -> None:
                     for p in people
                 )
                 st.markdown(
-                    f"**{journal.get('entry_date')}** — "
+                    f"**{format_display_date(journal.get('entry_date'))}** — "
                     f"**{journal.get('project_name')}** · "
-                    f"{float(journal.get('total_hours') or 0):g}h total · "
+                    f"{float(journal.get('total_hours') or 0):g} hr total · "
                     f"{journal.get('weather') or '—'}"
                     f"{temp_bit}{logged_bit}"
                 )
@@ -763,6 +769,7 @@ def _edit_entry_form(
                 "Date",
                 value=date.fromisoformat(entry["entry_date"]),
                 key=f"ed_date_{entry['id']}",
+                format="MMM DD, YYYY",
             )
         with c2:
             worker_name = st.selectbox(

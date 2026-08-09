@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Iterable
@@ -110,6 +111,23 @@ def _esc(text: Any) -> str:
         .replace(">", "&gt;")
         .replace("\n", "<br/>")
     )
+
+
+def format_display_date(value: Any) -> str:
+    """Format as 'Aug 09, 2026' for UI and PDF."""
+    if value is None or value == "":
+        return "—"
+    if isinstance(value, datetime):
+        d = value.date()
+    elif isinstance(value, date):
+        d = value
+    else:
+        s = str(value).strip()[:10]
+        try:
+            d = date.fromisoformat(s)
+        except ValueError:
+            return str(value)
+    return d.strftime("%b %d, %Y")
 
 
 def _label(styles, text: str, required: bool = False) -> Paragraph:
@@ -272,7 +290,7 @@ def build_entry_pdf(entry: dict[str, Any]) -> bytes:
         _two_col(
             styles,
             "Date",
-            entry.get("entry_date") or "—",
+            format_display_date(entry.get("entry_date")),
             "Job site",
             entry.get("project_name") or "—",
             left_req=True,
@@ -388,17 +406,18 @@ def build_entry_pdf(entry: dict[str, Any]) -> bytes:
 
 
 def entry_pdf_filename(entry: dict[str, Any]) -> str:
-    day = str(entry.get("entry_date") or "date")[:10]
-    site = str(entry.get("project_name") or "site").replace(" ", "_")
-    safe_site = "".join(c if c.isalnum() or c in "-_." else "_" for c in site)[:30]
-    gid = entry.get("group_id") or entry.get("id") or "x"
-    if isinstance(gid, str) and gid.startswith("solo-"):
-        tag = gid.replace("solo-", "")
-    elif isinstance(gid, str):
-        tag = gid[:8]
-    else:
-        tag = str(gid)
-    return f"journal_{day}_{safe_site}_{tag}.pdf"
+    """Filename: Job {Job site}-{Date}.pdf  e.g. Job Main Site A-Aug 09, 2026.pdf"""
+    site = str(entry.get("project_name") or "Site").strip() or "Site"
+    day = format_display_date(entry.get("entry_date"))
+    if day == "—":
+        day = "Unknown date"
+    # Allow letters, numbers, spaces, comma, hyphen; replace path-unsafe chars
+    raw = f"Job {site}-{day}.pdf"
+    safe = "".join(c if c not in '\\/:*?"<>|' else "-" for c in raw)
+    # Collapse repeated spaces
+    while "  " in safe:
+        safe = safe.replace("  ", " ")
+    return safe.strip()
 
 
 def build_entries_pdf_zip(entries: Iterable[dict[str, Any]]) -> bytes:
