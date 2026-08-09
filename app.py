@@ -389,7 +389,7 @@ def page_new_entry() -> None:
             with c4:
                 st.markdown(
                     f"<div style='padding-top:1.6rem;font-weight:600;'>"
-                    f"Total: {total:g} h</div>",
+                    f"Total: {total:g} hr</div>",
                     unsafe_allow_html=True,
                 )
             st.divider()
@@ -804,7 +804,7 @@ def _edit_entry_form(
         hours = _calc_worked_hours(start, finish, brk)
         with tc4:
             st.markdown(
-                f"<div style='padding-top:1.6rem;font-weight:600;'>Total: {hours:g} h</div>",
+                f"<div style='padding-top:1.6rem;font-weight:600;'>Total: {hours:g} hr</div>",
                 unsafe_allow_html=True,
             )
 
