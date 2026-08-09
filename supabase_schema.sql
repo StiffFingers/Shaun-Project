@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS entries (
     project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
     logged_by_worker_id BIGINT REFERENCES workers(id) ON DELETE SET NULL,
     weather TEXT NOT NULL DEFAULT '',
+    temperature_c DOUBLE PRECISION,
     hours_worked DOUBLE PRECISION NOT NULL DEFAULT 0,
     work_done TEXT NOT NULL DEFAULT '',
     crew_notes TEXT NOT NULL DEFAULT '',

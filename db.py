@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS entries (
     project_id INTEGER NOT NULL,
     logged_by_worker_id INTEGER,
     weather TEXT NOT NULL DEFAULT '',
+    temperature_c REAL,
     hours_worked REAL NOT NULL DEFAULT 0,
     work_done TEXT NOT NULL DEFAULT '',
     crew_notes TEXT NOT NULL DEFAULT '',
@@ -225,6 +226,11 @@ def _flatten_entry(row: dict[str, Any]) -> dict[str, Any]:
             out[key] = str(out[key])
     if out.get("hours_worked") is not None:
         out["hours_worked"] = float(out["hours_worked"])
+    if out.get("temperature_c") is not None and out.get("temperature_c") != "":
+        try:
+            out["temperature_c"] = float(out["temperature_c"])
+        except (TypeError, ValueError):
+            pass
     if out.get("active") is not None:
         out["active"] = 1 if out["active"] in (True, 1, "1") else 0
     return out
@@ -280,6 +286,8 @@ def init_db() -> None:
             conn.execute(
                 "ALTER TABLE entries ADD COLUMN action_follow_up TEXT NOT NULL DEFAULT ''"
             )
+        if "temperature_c" not in cols:
+            conn.execute("ALTER TABLE entries ADD COLUMN temperature_c REAL")
 
 
 def _table_is_empty(table: str) -> bool:
@@ -526,6 +534,7 @@ def add_entry(
     worker_id: int,
     project_id: int,
     weather: str = "",
+    temperature_c: Optional[float] = None,
     hours_worked: float = 0.0,
     work_done: str = "",
     crew_notes: str = "",
@@ -536,11 +545,17 @@ def add_entry(
     logged_by_worker_id: Optional[int] = None,
 ) -> int:
     entry_date_s = _as_date_str(entry_date)
+    temp_val: Optional[float]
+    if temperature_c is None or temperature_c == "":
+        temp_val = None
+    else:
+        temp_val = float(temperature_c)
     payload: dict[str, Any] = {
         "entry_date": entry_date_s,
         "worker_id": int(worker_id),
         "project_id": int(project_id),
         "weather": weather.strip(),
+        "temperature_c": temp_val,
         "hours_worked": float(hours_worked),
         "work_done": work_done.strip(),
         "crew_notes": crew_notes.strip(),
@@ -566,10 +581,10 @@ def add_entry(
         cur = conn.execute(
             """
             INSERT INTO entries (
-                entry_date, worker_id, project_id, logged_by_worker_id, weather, hours_worked,
-                work_done, crew_notes, materials_notes, issues_delays,
+                entry_date, worker_id, project_id, logged_by_worker_id, weather, temperature_c,
+                hours_worked, work_done, crew_notes, materials_notes, issues_delays,
                 safety_notes, action_follow_up, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 entry_date_s,
@@ -577,6 +592,7 @@ def add_entry(
                 project_id,
                 int(logged_by_worker_id) if logged_by_worker_id is not None else None,
                 payload["weather"],
+                temp_val,
                 payload["hours_worked"],
                 payload["work_done"],
                 payload["crew_notes"],
@@ -597,6 +613,7 @@ def add_entries_for_crew(
     hours_by_worker_id: dict[int, float],
     logged_by_worker_id: int,
     weather: str = "",
+    temperature_c: Optional[float] = None,
     work_done: str = "",
     crew_notes: str = "",
     materials_notes: str = "",
@@ -619,6 +636,7 @@ def add_entries_for_crew(
                 worker_id=int(worker_id),
                 project_id=project_id,
                 weather=weather,
+                temperature_c=temperature_c,
                 hours_worked=h,
                 work_done=work_done,
                 crew_notes=crew_notes,
@@ -638,6 +656,7 @@ def update_entry(
     worker_id: int,
     project_id: int,
     weather: str = "",
+    temperature_c: Optional[float] = None,
     hours_worked: float = 0.0,
     work_done: str = "",
     crew_notes: str = "",
@@ -647,11 +666,16 @@ def update_entry(
     action_follow_up: str = "",
 ) -> None:
     entry_date_s = _as_date_str(entry_date)
+    if temperature_c is None or temperature_c == "":
+        temp_val = None
+    else:
+        temp_val = float(temperature_c)
     payload = {
         "entry_date": entry_date_s,
         "worker_id": int(worker_id),
         "project_id": int(project_id),
         "weather": weather.strip(),
+        "temperature_c": temp_val,
         "hours_worked": float(hours_worked),
         "work_done": work_done.strip(),
         "crew_notes": crew_notes.strip(),
@@ -673,7 +697,7 @@ def update_entry(
             """
             UPDATE entries SET
                 entry_date = ?, worker_id = ?, project_id = ?, weather = ?,
-                hours_worked = ?, work_done = ?, crew_notes = ?,
+                temperature_c = ?, hours_worked = ?, work_done = ?, crew_notes = ?,
                 materials_notes = ?, issues_delays = ?, safety_notes = ?,
                 action_follow_up = ?, updated_at = ?
             WHERE id = ?
@@ -683,6 +707,7 @@ def update_entry(
                 worker_id,
                 project_id,
                 payload["weather"],
+                temp_val,
                 payload["hours_worked"],
                 payload["work_done"],
                 payload["crew_notes"],

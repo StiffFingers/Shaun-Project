@@ -29,18 +29,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-WEATHER_OPTIONS = [
-    "Clear / Sunny",
-    "Partly Cloudy",
-    "Overcast",
-    "Light Rain",
-    "Heavy Rain",
-    "Snow",
-    "Windy",
-    "Extreme Heat",
-    "Extreme Cold",
-    "Other / Mixed",
-]
+TEMPERATURE_C_OPTIONS = list(range(-5, 41))  # -5°C through 40°C
 
 
 def render_header(title: str, caption: str | None = None) -> None:
@@ -274,7 +263,18 @@ def page_new_entry() -> None:
             worker_names,
             help="Who is filling out this log (the person submitting).",
         )
-        weather = st.selectbox("Weather", WEATHER_OPTIONS)
+        wcol, tcol = st.columns(2)
+        with wcol:
+            weather = st.text_input(
+                "Weather",
+                placeholder="e.g. Sunny, light rain, overcast…",
+            )
+        with tcol:
+            temperature_c = st.selectbox(
+                "Temperature (°C)",
+                TEMPERATURE_C_OPTIONS,
+                index=TEMPERATURE_C_OPTIONS.index(15),
+            )
 
         hours_inputs: dict[str, float] = {}
         with st.container(border=True):
@@ -357,6 +357,7 @@ def page_new_entry() -> None:
                 hours_by_worker_id=hours_by_id,
                 logged_by_worker_id=workers[logged_by_name],
                 weather=weather,
+                temperature_c=float(temperature_c),
                 work_done=work_done,
                 crew_notes=crew_notes,
                 materials_notes=materials_notes,
@@ -441,11 +442,17 @@ def page_journal() -> None:
             with top_l:
                 logged_by = entry.get("logged_by_name") or ""
                 logged_bit = f" · logged by {logged_by}" if logged_by else ""
+                temp = entry.get("temperature_c")
+                temp_bit = (
+                    f" · {int(temp) if temp == int(temp) else temp}°C"
+                    if temp is not None and temp != ""
+                    else ""
+                )
                 st.markdown(
                     f"**#{entry['id']} · {entry['entry_date']}** — "
                     f"{entry['worker_name']} @ **{entry['project_name']}** · "
                     f"{entry['hours_worked']}h · {entry['weather'] or '—'}"
-                    f"{logged_bit}"
+                    f"{temp_bit}{logged_bit}"
                 )
             with top_r:
                 action = st.selectbox(
@@ -532,28 +539,34 @@ def _edit_entry_form(
                 key=f"ed_project_{entry['id']}",
             )
 
-        c4, c5 = st.columns(2)
-        with c4:
-            weather_idx = (
-                WEATHER_OPTIONS.index(entry["weather"])
-                if entry["weather"] in WEATHER_OPTIONS
-                else 0
-            )
-            weather = st.selectbox(
+        wcol, tcol = st.columns(2)
+        with wcol:
+            weather = st.text_input(
                 "Weather",
-                WEATHER_OPTIONS,
-                index=weather_idx,
+                value=entry.get("weather") or "",
                 key=f"ed_weather_{entry['id']}",
             )
-        with c5:
-            hours = st.number_input(
-                "Hours worked",
-                min_value=0.0,
-                max_value=24.0,
-                value=float(entry["hours_worked"] or 0),
-                step=0.25,
-                key=f"ed_hours_{entry['id']}",
+        with tcol:
+            raw_temp = entry.get("temperature_c")
+            try:
+                temp_default = int(float(raw_temp)) if raw_temp is not None and raw_temp != "" else 15
+            except (TypeError, ValueError):
+                temp_default = 15
+            temp_default = max(-5, min(40, temp_default))
+            temperature_c = st.selectbox(
+                "Temperature (°C)",
+                TEMPERATURE_C_OPTIONS,
+                index=TEMPERATURE_C_OPTIONS.index(temp_default),
+                key=f"ed_temp_{entry['id']}",
             )
+        hours = st.number_input(
+            "Hours worked",
+            min_value=0.0,
+            max_value=24.0,
+            value=float(entry["hours_worked"] or 0),
+            step=0.25,
+            key=f"ed_hours_{entry['id']}",
+        )
 
         work_done = st.text_area(
             "Work performed",
@@ -615,6 +628,7 @@ def _edit_entry_form(
             worker_id=all_workers[worker_name],
             project_id=project_id,
             weather=weather,
+            temperature_c=float(temperature_c),
             hours_worked=hours,
             work_done=work_done,
             crew_notes=crew_notes,

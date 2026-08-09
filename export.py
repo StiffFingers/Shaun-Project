@@ -18,6 +18,7 @@ COLUMNS = [
     ("logged_by_name", "Log Entry By"),
     ("project_name", "Job Site"),
     ("weather", "Weather"),
+    ("temperature_c", "Temperature (°C)"),
     ("work_done", "Work Performed"),
     ("safety_notes", "Health, Safety, Environment"),
     ("crew_notes", "Visitor / Subcontractors"),
