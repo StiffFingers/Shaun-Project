@@ -16,6 +16,7 @@ from reportlab.lib.units import inch
 from reportlab.platypus import (
     HRFlowable,
     Image,
+    KeepInFrame,
     Paragraph,
     SimpleDocTemplate,
     Spacer,
@@ -251,7 +252,10 @@ def _people_rows(journal: dict[str, Any]) -> list[list[str]]:
 
 
 def build_entry_pdf(entry: dict[str, Any]) -> bytes:
-    """Return PDF bytes for one journal (may include multiple people/hours)."""
+    """Return PDF bytes for one journal (may include multiple people/hours).
+
+    Always fits on a single letter page by shrinking content if needed.
+    """
     styles = _styles()
     buf = BytesIO()
     people = entry.get("people") or []
@@ -260,15 +264,24 @@ def build_entry_pdf(entry: dict[str, Any]) -> bytes:
         title_id = title_id.replace("solo-", "#")
     elif isinstance(title_id, str) and len(title_id) > 8:
         title_id = title_id[:8]
+
+    # Slightly tighter margins so one-page fit has more room before shrinking
+    left_m = right_m = 0.6 * inch
+    top_m = bottom_m = 0.5 * inch
+    page_w, page_h = letter
+    frame_w = page_w - left_m - right_m
+    frame_h = page_h - top_m - bottom_m
+
     doc = SimpleDocTemplate(
         buf,
         pagesize=letter,
-        leftMargin=0.75 * inch,
-        rightMargin=0.75 * inch,
-        topMargin=0.6 * inch,
-        bottomMargin=0.6 * inch,
+        leftMargin=left_m,
+        rightMargin=right_m,
+        topMargin=top_m,
+        bottomMargin=bottom_m,
         title=f"Journal Entry {title_id}",
     )
+    # Content is built for CONTENT_W; KeepInFrame will scale to frame_w/frame_h
     story = []
 
     if LOGO_PATH.exists():
@@ -401,7 +414,17 @@ def build_entry_pdf(entry: dict[str, Any]) -> bytes:
         )
     )
 
-    doc.build(story)
+    # Shrink entire report into one page when content is tall (many people / long notes)
+    fitted = KeepInFrame(
+        frame_w,
+        frame_h,
+        story,
+        mode="shrink",
+        hAlign="LEFT",
+        vAlign="TOP",
+        fakeWidth=False,
+    )
+    doc.build([fitted])
     return buf.getvalue()
 
 
