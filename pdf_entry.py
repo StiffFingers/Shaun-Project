@@ -143,8 +143,15 @@ def _label(styles, text: str, required: bool = False) -> Paragraph:
     return Paragraph(_esc(text), styles["label"])
 
 
-def _value_box(styles, text: Any, width: float = CONTENT_W) -> Table:
+def _value_box(styles, text: Any, width: float = CONTENT_W, *, allow_split: bool = False):
+    """
+    Bordered value area. Short fields use a table box; long notes use a
+    split-friendly Paragraph so multi-page PDFs never crash on huge cells.
+    """
     body = Paragraph(_esc(text) if text not in (None, "") else "—", styles["box"])
+    if allow_split:
+        # Paragraph can flow across pages; light left bar via table of one short min row is not needed
+        return body
     t = Table([[body]], colWidths=[width])
     t.setStyle(
         TableStyle(
@@ -275,8 +282,16 @@ def _story_height(story: list, avail_width: float) -> float:
     return total
 
 
-def _compose_entry_story(entry: dict[str, Any], styles: dict) -> list:
-    """Build the journal form flowables (full size)."""
+def _compose_entry_story(
+    entry: dict[str, Any],
+    styles: dict,
+    *,
+    multipage: bool = False,
+) -> list:
+    """Build the journal form flowables (full size).
+
+    multipage=True uses split-friendly long text (no unbreakable tall table cells).
+    """
     title_id = entry.get("group_id") or entry.get("id") or ""
     if isinstance(title_id, str) and title_id.startswith("solo-"):
         title_id = title_id.replace("solo-", "#")
@@ -387,23 +402,37 @@ def _compose_entry_story(entry: dict[str, Any], styles: dict) -> list:
     )
     story.append(hours_inner)
 
+    # Long note fields: allow page splits when multipage so one huge cell never exceeds a page
+    split = multipage
     story.append(_label(styles, "Work performed", required=True))
-    story.append(_value_box(styles, entry.get("work_done") or "—"))
+    story.append(
+        _value_box(styles, entry.get("work_done") or "—", allow_split=split)
+    )
 
     story.append(_label(styles, "Health, Safety, Environment", required=True))
-    story.append(_value_box(styles, entry.get("safety_notes") or "—"))
+    story.append(
+        _value_box(styles, entry.get("safety_notes") or "—", allow_split=split)
+    )
 
     story.append(_label(styles, "Visitor / Subcontractors"))
-    story.append(_value_box(styles, entry.get("crew_notes") or "—"))
+    story.append(
+        _value_box(styles, entry.get("crew_notes") or "—", allow_split=split)
+    )
 
     story.append(_label(styles, "Equipment/Materials"))
-    story.append(_value_box(styles, entry.get("materials_notes") or "—"))
+    story.append(
+        _value_box(styles, entry.get("materials_notes") or "—", allow_split=split)
+    )
 
     story.append(_label(styles, "Issues / delays"))
-    story.append(_value_box(styles, entry.get("issues_delays") or "—"))
+    story.append(
+        _value_box(styles, entry.get("issues_delays") or "—", allow_split=split)
+    )
 
     story.append(_label(styles, "Action / Follow up Items"))
-    story.append(_value_box(styles, entry.get("action_follow_up") or "—"))
+    story.append(
+        _value_box(styles, entry.get("action_follow_up") or "—", allow_split=split)
+    )
 
     story.append(Spacer(1, 12))
     story.append(HRFlowable(width="100%", thickness=0.4, color=BORDER, spaceAfter=6))
@@ -449,19 +478,20 @@ def build_entry_pdf(entry: dict[str, Any]) -> bytes:
         title=f"Journal Entry {title_id}",
     )
 
-    # Measure a throwaway copy so wrap() state doesn't affect the built story
-    measure_story = _compose_entry_story(entry, styles)
+    # Measure at full size (throwaway story so wrap state is isolated)
+    measure_story = _compose_entry_story(entry, styles, multipage=False)
     content_h = _story_height(measure_story, frame_w)
-    story = _compose_entry_story(entry, styles)
 
     # How much we'd need to scale vertically to fit one page
     needed_scale = (frame_h / content_h) if content_h > 0 else 1.0
 
     if content_h <= frame_h * 1.02:
         # Fits at full size → one page
+        story = _compose_entry_story(entry, styles, multipage=False)
         doc.build(story)
     elif needed_scale >= MIN_PDF_SCALE:
         # Mild overflow → shrink (not below 75%) onto one page
+        story = _compose_entry_story(entry, styles, multipage=False)
         fitted = KeepInFrame(
             frame_w,
             frame_h,
@@ -474,6 +504,7 @@ def build_entry_pdf(entry: dict[str, Any]) -> bytes:
         doc.build([fitted])
     else:
         # Would need to shrink below 75% → multi-page at full readable size
+        story = _compose_entry_story(entry, styles, multipage=True)
         doc.build(story)
 
     return buf.getvalue()
