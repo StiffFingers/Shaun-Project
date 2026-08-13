@@ -30,10 +30,13 @@ LIGHT = colors.HexColor("#F4F7FA")
 BORDER = colors.HexColor("#CCCCCC")
 RED = colors.HexColor("#C62828")
 
-# Letter page with 0.75" side margins → 7.0" content width
-CONTENT_W = 7.0 * inch
+# Letter page with 0.6" side margins → ~7.3" content width
+CONTENT_W = 7.3 * inch
 COL_GAP = 0.2 * inch
 HALF_W = (CONTENT_W - COL_GAP) / 2
+
+# If content would need to shrink below this, use multi-page at full size instead
+MIN_PDF_SCALE = 0.75
 
 
 def _styles():
@@ -251,38 +254,36 @@ def _people_rows(journal: dict[str, Any]) -> list[list[str]]:
     ]
 
 
-def build_entry_pdf(entry: dict[str, Any]) -> bytes:
-    """Return PDF bytes for one journal (may include multiple people/hours).
+def _story_height(story: list, avail_width: float) -> float:
+    """Natural height of flowables at full size (for one-page / scale decisions)."""
+    total = 0.0
+    for flowable in story:
+        try:
+            sb = float(flowable.getSpaceBefore())
+        except Exception:
+            sb = 0.0
+        try:
+            sa = float(flowable.getSpaceAfter())
+        except Exception:
+            sa = 0.0
+        try:
+            _w, h = flowable.wrap(avail_width, 1e8)
+            h = float(h or 0)
+        except Exception:
+            h = 0.0
+        total += sb + h + sa
+    return total
 
-    Always fits on a single letter page by shrinking content if needed.
-    """
-    styles = _styles()
-    buf = BytesIO()
-    people = entry.get("people") or []
+
+def _compose_entry_story(entry: dict[str, Any], styles: dict) -> list:
+    """Build the journal form flowables (full size)."""
     title_id = entry.get("group_id") or entry.get("id") or ""
     if isinstance(title_id, str) and title_id.startswith("solo-"):
         title_id = title_id.replace("solo-", "#")
     elif isinstance(title_id, str) and len(title_id) > 8:
         title_id = title_id[:8]
 
-    # Slightly tighter margins so one-page fit has more room before shrinking
-    left_m = right_m = 0.6 * inch
-    top_m = bottom_m = 0.5 * inch
-    page_w, page_h = letter
-    frame_w = page_w - left_m - right_m
-    frame_h = page_h - top_m - bottom_m
-
-    doc = SimpleDocTemplate(
-        buf,
-        pagesize=letter,
-        leftMargin=left_m,
-        rightMargin=right_m,
-        topMargin=top_m,
-        bottomMargin=bottom_m,
-        title=f"Journal Entry {title_id}",
-    )
-    # Content is built for CONTENT_W; KeepInFrame will scale to frame_w/frame_h
-    story = []
+    story: list = []
 
     if LOGO_PATH.exists():
         img = Image(str(LOGO_PATH), width=2.6 * inch, height=0.72 * inch)
@@ -293,7 +294,7 @@ def build_entry_pdf(entry: dict[str, Any]) -> bytes:
     story.append(Paragraph("In-Spec Team Work Journal Entry", styles["title"]))
     story.append(
         Paragraph(
-            f"Journal { _esc(title_id) } · exported from the field journal",
+            f"Journal {_esc(title_id)} · exported from the field journal",
             styles["small"],
         )
     )
@@ -313,7 +314,6 @@ def build_entry_pdf(entry: dict[str, Any]) -> bytes:
     story.append(_label(styles, "Log entry by", required=True))
     story.append(_value_box(styles, entry.get("logged_by_name") or "—"))
 
-    # Same vertical gap as full-width fields before Weather / Temperature
     story.append(Spacer(1, 4))
     story.append(
         _two_col(
@@ -327,7 +327,6 @@ def build_entry_pdf(entry: dict[str, Any]) -> bytes:
         )
     )
 
-    # Hours by person — all people on this journal
     story.append(Spacer(1, 8))
     story.append(Paragraph("Hours", styles["label"]))
     header = [
@@ -339,15 +338,17 @@ def build_entry_pdf(entry: dict[str, Any]) -> bytes:
     ]
     hour_lines = [header]
     for row in _people_rows(entry):
-        hour_lines.append(
-            [Paragraph(_esc(cell), styles["value"]) for cell in row]
-        )
+        hour_lines.append([Paragraph(_esc(cell), styles["value"]) for cell in row])
     if len(hour_lines) == 1:
-        hour_lines.append(
-            [Paragraph("—", styles["value"]) for _ in range(5)]
-        )
+        hour_lines.append([Paragraph("—", styles["value"]) for _ in range(5)])
 
-    col_w = [CONTENT_W * 0.32, CONTENT_W * 0.15, CONTENT_W * 0.15, CONTENT_W * 0.18, CONTENT_W * 0.20]
+    col_w = [
+        CONTENT_W * 0.32,
+        CONTENT_W * 0.15,
+        CONTENT_W * 0.15,
+        CONTENT_W * 0.18,
+        CONTENT_W * 0.20,
+    ]
     hours_people_table = Table(hour_lines, colWidths=col_w)
     hours_people_table.setStyle(
         TableStyle(
@@ -413,18 +414,68 @@ def build_entry_pdf(entry: dict[str, Any]) -> bytes:
             styles["footer"],
         )
     )
+    return story
 
-    # Shrink entire report into one page when content is tall (many people / long notes)
-    fitted = KeepInFrame(
-        frame_w,
-        frame_h,
-        story,
-        mode="shrink",
-        hAlign="LEFT",
-        vAlign="TOP",
-        fakeWidth=False,
+
+def build_entry_pdf(entry: dict[str, Any]) -> bytes:
+    """Return PDF bytes for one journal (may include multiple people/hours).
+
+    Layout rules:
+    1. Prefer one page at full size when content fits.
+    2. If slightly too tall, shrink down to MIN_PDF_SCALE (75%) to stay one page.
+    3. If even 75% would be unreadable / not enough, use multiple full-size pages.
+    """
+    styles = _styles()
+    buf = BytesIO()
+    title_id = entry.get("group_id") or entry.get("id") or ""
+    if isinstance(title_id, str) and title_id.startswith("solo-"):
+        title_id = title_id.replace("solo-", "#")
+    elif isinstance(title_id, str) and len(title_id) > 8:
+        title_id = title_id[:8]
+
+    left_m = right_m = 0.6 * inch
+    top_m = bottom_m = 0.5 * inch
+    page_w, page_h = letter
+    frame_w = page_w - left_m - right_m
+    frame_h = page_h - top_m - bottom_m
+
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=letter,
+        leftMargin=left_m,
+        rightMargin=right_m,
+        topMargin=top_m,
+        bottomMargin=bottom_m,
+        title=f"Journal Entry {title_id}",
     )
-    doc.build([fitted])
+
+    # Measure a throwaway copy so wrap() state doesn't affect the built story
+    measure_story = _compose_entry_story(entry, styles)
+    content_h = _story_height(measure_story, frame_w)
+    story = _compose_entry_story(entry, styles)
+
+    # How much we'd need to scale vertically to fit one page
+    needed_scale = (frame_h / content_h) if content_h > 0 else 1.0
+
+    if content_h <= frame_h * 1.02:
+        # Fits at full size → one page
+        doc.build(story)
+    elif needed_scale >= MIN_PDF_SCALE:
+        # Mild overflow → shrink (not below 75%) onto one page
+        fitted = KeepInFrame(
+            frame_w,
+            frame_h,
+            story,
+            mode="shrink",
+            hAlign="LEFT",
+            vAlign="TOP",
+            fakeWidth=False,
+        )
+        doc.build([fitted])
+    else:
+        # Would need to shrink below 75% → multi-page at full readable size
+        doc.build(story)
+
     return buf.getvalue()
 
 
