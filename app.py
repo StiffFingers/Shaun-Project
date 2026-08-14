@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -18,6 +19,14 @@ from pdf_entry import (
     entry_pdf_filename,
     format_display_date,
 )
+
+# App “today” and default dates use Vancouver / Pacific time (not server UTC)
+VANCOUVER_TZ = ZoneInfo("America/Vancouver")
+
+
+def today_vancouver() -> date:
+    """Current calendar date in America/Vancouver (handles PST/PDT)."""
+    return datetime.now(VANCOUVER_TZ).date()
 
 ASSETS_DIR = Path(__file__).parent / "assets"
 LOGO_PATH = ASSETS_DIR / "in-spec-logo.png"
@@ -311,7 +320,7 @@ def page_new_entry() -> None:
         _req_label("Date")
         entry_date = st.date_input(
             "Date",
-            value=date.today(),
+            value=today_vancouver(),
             label_visibility="collapsed",
             key=f"{pfx}date",
             format="DD/MM/YYYY",
@@ -575,11 +584,11 @@ def page_journal() -> None:
         with f1:
             date_from = st.date_input(
                 "From",
-                value=date.today() - timedelta(days=30),
+                value=today_vancouver() - timedelta(days=30),
                 key="filter_from",
             )
         with f2:
-            date_to = st.date_input("To", value=date.today(), key="filter_to")
+            date_to = st.date_input("To", value=today_vancouver(), key="filter_to")
         with f3:
             worker_filter = st.selectbox(
                 "Worker",
@@ -943,11 +952,11 @@ def page_export() -> None:
     with c1:
         date_from = st.date_input(
             "From",
-            value=date.today().replace(day=1),
+            value=today_vancouver().replace(day=1),
             key="export_from",
         )
     with c2:
-        date_to = st.date_input("To", value=date.today(), key="export_to")
+        date_to = st.date_input("To", value=today_vancouver(), key="export_to")
     with c3:
         worker_filter = st.selectbox(
             "Worker",
@@ -1168,7 +1177,7 @@ key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...."
 
     st.sidebar.markdown("---")
     st.sidebar.markdown(
-        f"**Today:** {date.today().strftime('%a, %b %d, %Y')}  \n"
+        f"**Today (Vancouver):** {today_vancouver().strftime('%a, %b %d, %Y')}  \n"
         f"**Data:** {db.storage_label()}"
     )
     if not db.using_supabase():
