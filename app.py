@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -13,6 +14,7 @@ import streamlit.components.v1 as components
 import auth
 import db
 from export import build_excel
+from photos import compress_image
 from pdf_entry import (
     build_entry_pdf,
     build_entries_pdf_zip,
@@ -45,6 +47,8 @@ st.set_page_config(
 )
 
 TEMPERATURE_C_OPTIONS = list(range(-5, 41))  # -5°C through 40°C
+PHOTO_MIN_NEW = 2
+PHOTO_MAX = 10
 
 # 15-minute clock options from 6:00 AM through midnight; "—" = not on site
 TIME_BLANK = "—"
@@ -244,6 +248,159 @@ def bootstrap() -> tuple[bool, str]:
         )
         st.session_state["_db_bootstrapped_err"] = message
         return False, message
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_photo_bytes(photo_id: int, storage_path: str) -> bytes:
+    return db.read_photo_bytes({"id": photo_id, "storage_path": storage_path})
+
+
+def _photo_draft(key: str) -> list[dict]:
+    if key not in st.session_state:
+        st.session_state[key] = []
+    return st.session_state[key]
+
+
+def render_photo_picker(
+    *,
+    ns: str,
+    required_min: int,
+    existing: list[dict] | None = None,
+    max_photos: int = PHOTO_MAX,
+) -> list[dict]:
+    """Camera-roll picker. Returns the in-memory draft list (new photos not yet saved)."""
+    existing = existing or []
+    draft_key = f"{ns}_draft"
+    draft = _photo_draft(draft_key)
+    total = len(existing) + len(draft)
+    required = required_min > 0
+
+    if required:
+        _req_label("Proof-of-work photos")
+    else:
+        st.markdown(
+            '<div style="font-size:0.875rem;margin:0.8rem 0 0.15rem;">'
+            "Proof-of-work photos</div>",
+            unsafe_allow_html=True,
+        )
+    if required:
+        st.caption(
+            f"Add {required_min}–{max_photos} photos from your camera roll. "
+            "Captions are optional. iPhone photos are compressed automatically."
+        )
+    else:
+        st.caption(
+            f"Optional — up to {max_photos} photos from your camera roll. "
+            "Older logs do not require pictures."
+        )
+
+    status = f"{total} of {max_photos}"
+    if required and total < required_min:
+        need = required_min - total
+        status += f" · need {need} more"
+    elif total >= max_photos:
+        status += " — maximum reached"
+    st.caption(status)
+
+    if existing:
+        cols = st.columns(3)
+        for i, photo in enumerate(existing):
+            with cols[i % 3]:
+                try:
+                    data = _cached_photo_bytes(int(photo["id"]), photo.get("storage_path") or "")
+                except Exception:
+                    data = b""
+                if data:
+                    st.image(data, use_container_width=True)
+                else:
+                    st.caption("(could not load photo)")
+                st.text_input(
+                    "Caption",
+                    value=photo.get("caption") or "",
+                    key=f"{ns}_excap_{photo['id']}",
+                    label_visibility="collapsed",
+                    placeholder="Caption (optional)",
+                )
+                if st.button("Remove", key=f"{ns}_exrm_{photo['id']}"):
+                    try:
+                        db.delete_photo(int(photo["id"]))
+                        _cached_photo_bytes.clear()
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Could not remove photo: {exc}")
+
+    if draft:
+        cols = st.columns(3)
+        remove_uid = None
+        for i, item in enumerate(draft):
+            with cols[i % 3]:
+                if item.get("data"):
+                    st.image(item["data"], use_container_width=True)
+                st.text_input(
+                    "Caption",
+                    key=f"{ns}_cap_{item['uid']}",
+                    label_visibility="collapsed",
+                    placeholder="Caption (optional)",
+                )
+                if st.button("Remove", key=f"{ns}_rm_{item['uid']}"):
+                    remove_uid = item["uid"]
+        if remove_uid:
+            st.session_state[draft_key] = [x for x in draft if x["uid"] != remove_uid]
+            st.rerun()
+
+    room = max_photos - total
+    if room > 0:
+        up_i_key = f"{ns}_up_i"
+        if up_i_key not in st.session_state:
+            st.session_state[up_i_key] = 0
+        files = st.file_uploader(
+            "Add from camera roll",
+            type=["jpg", "jpeg", "png", "webp", "heic", "heif"],
+            accept_multiple_files=True,
+            key=f"{ns}_up_{st.session_state[up_i_key]}",
+            help="Pick photos already on your phone. You can add more than one at a time.",
+        )
+        if files:
+            added = 0
+            errors: list[str] = []
+            for f in files:
+                if len(_photo_draft(draft_key)) + len(existing) >= max_photos:
+                    errors.append(f"Stopped at {max_photos} photos.")
+                    break
+                try:
+                    jpeg = compress_image(f.getvalue(), f.name)
+                except ValueError as exc:
+                    errors.append(f"{f.name}: {exc}")
+                    continue
+                _photo_draft(draft_key).append(
+                    {
+                        "uid": uuid.uuid4().hex,
+                        "name": f.name,
+                        "data": jpeg,
+                        "caption": "",
+                    }
+                )
+                added += 1
+            st.session_state[up_i_key] = int(st.session_state[up_i_key]) + 1
+            if errors:
+                st.session_state[f"{ns}_up_errors"] = errors
+            st.rerun()
+        err_key = f"{ns}_up_errors"
+        if st.session_state.get(err_key):
+            for msg in st.session_state.pop(err_key):
+                st.error(msg)
+    else:
+        st.caption("Remove a photo if you want to attach a different one.")
+
+    return _photo_draft(draft_key)
+
+
+def _draft_with_captions(ns: str, draft: list[dict]) -> list[dict]:
+    out = []
+    for item in draft:
+        cap = st.session_state.get(f"{ns}_cap_{item['uid']}", item.get("caption") or "")
+        out.append({**item, "caption": cap})
+    return out
 
 
 @st.cache_data(ttl=45, show_spinner=False)
@@ -489,6 +646,14 @@ def page_new_entry() -> None:
         key=f"{pfx}followup",
     )
 
+    photo_ns = f"{pfx}photos"
+    photo_draft = render_photo_picker(
+        ns=photo_ns,
+        required_min=PHOTO_MIN_NEW,
+        existing=[],
+        max_photos=PHOTO_MAX,
+    )
+
     submitted = st.button("Save entry", type="primary", use_container_width=True)
 
     if submitted:
@@ -533,10 +698,20 @@ def page_new_entry() -> None:
                 "Set start and finish times so at least one person has total hours above 0."
             )
             return
+        photo_items = _draft_with_captions(photo_ns, photo_draft)
+        if len(photo_items) < PHOTO_MIN_NEW:
+            st.error(
+                f"Add at least {PHOTO_MIN_NEW} photos from your camera roll before saving. "
+                f"({len(photo_items)} of {PHOTO_MAX})"
+            )
+            return
+        if len(photo_items) > PHOTO_MAX:
+            st.error(f"Maximum {PHOTO_MAX} photos per journal.")
+            return
         try:
             project_id = db.get_or_create_project(project_name)
             _clear_crew_cache()
-            ids = db.add_entries_for_crew(
+            ids, group_id = db.add_entries_for_crew(
                 entry_date=entry_date,
                 project_id=project_id,
                 hours_by_worker_id=hours_by_id,
@@ -549,12 +724,29 @@ def page_new_entry() -> None:
                 issues_delays=issues,
                 safety_notes=safety,
                 action_follow_up=action_follow_up,
+                photos_required=True,
             )
+            try:
+                db.add_photos(
+                    group_id,
+                    [
+                        {
+                            "data": item["data"],
+                            "caption": item.get("caption") or "",
+                            "original_name": item.get("name") or "",
+                        }
+                        for item in photo_items
+                    ],
+                )
+            except Exception:
+                db.delete_entry_group({"group_id": group_id, "ids": ids})
+                raise
         except Exception as exc:
             st.error(f"Could not save: {exc}")
             st.info(
-                "If this mentions a missing column, run the latest SQL migration files "
-                "in your Supabase SQL Editor (`supabase_migration_*.sql`), then try again."
+                "If this mentions a missing column or photos table, run the latest SQL "
+                "migration files in your Supabase SQL Editor "
+                "(`supabase_migration_photos.sql`), then try again."
             )
             return
 
@@ -572,6 +764,7 @@ def page_new_entry() -> None:
         for key in list(st.session_state.keys()):
             if str(key).startswith(pfx):
                 del st.session_state[key]
+        st.session_state.pop(f"{photo_ns}_draft", None)
         st.rerun()
 
 
@@ -623,6 +816,20 @@ def page_journal() -> None:
     if not journals:
         st.info("No journals match these filters.")
         return
+
+    try:
+        photos_by_group = db.list_photos_for_groups(
+            [str(j.get("group_id") or "") for j in journals]
+        )
+    except Exception as exc:
+        st.warning(
+            "Could not load photos. If this is the live app, run "
+            "`supabase_migration_photos.sql` in the Supabase SQL Editor, then refresh. "
+            f"({exc})"
+        )
+        photos_by_group = {}
+    for j in journals:
+        j["photos"] = photos_by_group.get(str(j.get("group_id") or ""), [])
 
     by_gid = {str(j["group_id"]): j for j in journals}
     selected_gids = [
@@ -698,6 +905,31 @@ def page_journal() -> None:
 
             st.write(journal.get("work_done") or "_(no work description)_")
 
+            card_photos = journal.get("photos") or []
+            if card_photos:
+                tcols = st.columns(min(4, len(card_photos)))
+                for i, photo in enumerate(card_photos[:4]):
+                    with tcols[i]:
+                        try:
+                            pdata = _cached_photo_bytes(
+                                int(photo["id"]), photo.get("storage_path") or ""
+                            )
+                        except Exception:
+                            pdata = b""
+                        if pdata:
+                            st.image(pdata, use_container_width=True)
+                extra = len(card_photos) - min(4, len(card_photos))
+                label = f"{len(card_photos)} photo" + (
+                    "s" if len(card_photos) != 1 else ""
+                )
+                if extra > 0:
+                    label += f" · +{extra} more"
+                st.caption(label)
+            elif journal.get("photos_required"):
+                st.caption("No photos")
+            else:
+                st.caption("No photos (older entry — not required)")
+
             details = []
             if journal.get("safety_notes"):
                 details.append(
@@ -733,7 +965,7 @@ def page_journal() -> None:
                 if people:
                     primary = db.get_entry(int(people[0]["id"]))
                 if primary:
-                    _edit_entry_form(primary, workers, projects)
+                    _edit_entry_form(primary, workers, projects, journal=journal)
                     if len(people) > 1:
                         st.info(
                             "This journal has multiple people. Editing updates the first "
@@ -755,6 +987,7 @@ def _edit_entry_form(
     entry: dict,
     workers: dict[str, int],
     projects: dict[str, int],
+    journal: dict | None = None,
 ) -> None:
     st.markdown("---")
     st.markdown(f"#### Edit entry #{entry['id']}")
@@ -776,6 +1009,18 @@ def _edit_entry_form(
     if current_project not in project_names:
         project_names.insert(0, current_project)
         all_projects[current_project] = entry["project_id"]
+
+    journal = journal or {}
+    gid = db.photo_group_id(journal) or db.photo_group_id(entry)
+    existing_photos = db.list_photos(gid) if gid else []
+    photos_required = bool(journal.get("photos_required") or entry.get("photos_required"))
+    photo_ns = f"edit_photos_{gid or entry['id']}"
+    photo_draft = render_photo_picker(
+        ns=photo_ns,
+        required_min=PHOTO_MIN_NEW if photos_required else 0,
+        existing=existing_photos,
+        max_photos=PHOTO_MAX,
+    )
 
     with st.form(f"edit_{entry['id']}"):
         c1, c2, c3 = st.columns(3)
@@ -912,6 +1157,17 @@ def _edit_entry_form(
         if not (project_name or "").strip():
             st.error("Job site cannot be empty.")
             return
+        new_photos = _draft_with_captions(photo_ns, photo_draft)
+        live_count = len(existing_photos) + len(new_photos)
+        if photos_required and live_count < PHOTO_MIN_NEW:
+            st.error(
+                f"This journal needs at least {PHOTO_MIN_NEW} photos. "
+                f"({live_count} of {PHOTO_MAX})"
+            )
+            return
+        if live_count > PHOTO_MAX:
+            st.error(f"Maximum {PHOTO_MAX} photos per journal.")
+            return
         try:
             project_id = db.get_or_create_project(project_name)
             _clear_crew_cache()
@@ -936,6 +1192,26 @@ def _edit_entry_form(
             safety_notes=safety,
             action_follow_up=action_follow_up,
         )
+        if gid:
+            for photo in existing_photos:
+                cap = st.session_state.get(
+                    f"{photo_ns}_excap_{photo['id']}", photo.get("caption") or ""
+                )
+                if str(cap or "") != str(photo.get("caption") or ""):
+                    db.update_photo_caption(int(photo["id"]), str(cap or ""))
+            if new_photos:
+                db.add_photos(
+                    gid,
+                    [
+                        {
+                            "data": item["data"],
+                            "caption": item.get("caption") or "",
+                            "original_name": item.get("name") or "",
+                        }
+                        for item in new_photos
+                    ],
+                )
+                st.session_state.pop(f"{photo_ns}_draft", None)
         st.success(f"Updated entry #{entry['id']}.")
         st.rerun()
 
@@ -979,6 +1255,15 @@ def page_export() -> None:
         worker_id=worker_id,
         project_id=project_id,
     )
+    photo_map = db.list_photos_for_groups(
+        [
+            (e.get("entry_group_id") or "").strip() or f"solo-{e.get('id')}"
+            for e in entries
+        ]
+    )
+    for e in entries:
+        gid = (e.get("entry_group_id") or "").strip() or f"solo-{e.get('id')}"
+        e["photo_count"] = len(photo_map.get(gid) or [])
     stats = db.entry_stats(
         date_from=date_from.isoformat(),
         date_to=date_to.isoformat(),
@@ -1004,6 +1289,7 @@ def page_export() -> None:
                 "Worker": e["worker_name"],
                 "Project": e["project_name"],
                 "Hours": e["hours_worked"],
+                "Photos": e.get("photo_count") or 0,
                 "Weather": e["weather"],
                 "Work performed": (e["work_done"] or "")[:120],
             }

@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>In-Spec Journal — Photo wireframes (review only)</title>
+  <style>
+    :root {
+      --bg: #f5f7fa;
+      --panel: #ffffff;
+      --ink: #1a1d21;
+      --muted: #5c6570;
+      --line: #d8dee6;
+      --red: #c62828;
+      --blue: #ff4b4b;
+      --navy: #1f4e79;
+      --ok: #1b7f4e;
+      --warn: #8a5a00;
+      --chip: #eef2f6;
+      --photo: #cfd8e3;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #e8edf3;
+      color: var(--ink);
+    }
+    .banner {
+      background: #1f4e79;
+      color: #fff;
+      padding: 10px 18px;
+      font-size: 13px;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .banner strong { font-weight: 700; }
+    .tabs {
+      display: flex;
+      gap: 8px;
+      padding: 12px 16px 0;
+      overflow-x: auto;
+    }
+    .tabs button {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 999px;
+      padding: 8px 14px;
+      font-size: 13px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .tabs button[aria-selected="true"] {
+      background: #1f4e79;
+      color: #fff;
+      border-color: #1f4e79;
+    }
+    .stage {
+      padding: 16px;
+      display: flex;
+      justify-content: center;
+    }
+    .phone {
+      width: 390px;
+      max-width: 100%;
+      background: var(--bg);
+      border: 1px solid #c5ced8;
+      border-radius: 18px;
+      box-shadow: 0 12px 40px rgba(20, 40, 70, 0.12);
+      overflow: hidden;
+    }
+    .wide { width: 820px; }
+    .appbar {
+      background: #fff;
+      border-bottom: 1px solid var(--line);
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .appbar .dot {
+      width: 10px; height: 10px; border-radius: 50%; background: #ff4b4b;
+    }
+    .layout { display: flex; min-height: 640px; }
+    .side {
+      width: 148px;
+      background: #fff;
+      border-right: 1px solid var(--line);
+      padding: 12px 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .side .nav {
+      margin: 8px 0;
+      padding: 7px 8px;
+      border-radius: 6px;
+    }
+    .side .nav.on { background: #ffe8e8; color: var(--ink); font-weight: 650; }
+    .main { flex: 1; padding: 14px 16px 24px; }
+    h1 { font-size: 22px; margin: 6px 0 4px; }
+    .cap { font-size: 12px; color: var(--muted); margin-bottom: 14px; }
+    label.field {
+      display: block;
+      font-size: 13px;
+      margin: 12px 0 4px;
+    }
+    .req { color: var(--red); font-weight: 700; }
+    .box, input[disabled], textarea[disabled] {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 8px 10px;
+      font-size: 13px;
+      color: var(--ink);
+    }
+    textarea[disabled] { min-height: 52px; resize: none; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .card {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 10px;
+      padding: 10px;
+      margin: 10px 0;
+    }
+    .times { font-size: 11px; color: var(--muted); }
+    .times div { display: grid; grid-template-columns: 1.2fr 1fr 1fr 1fr; gap: 6px; padding: 4px 0; }
+    .btn {
+      display: block;
+      width: 100%;
+      text-align: center;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 14px;
+      font-weight: 650;
+      margin-top: 12px;
+    }
+    .btn.primary { background: #ff4b4b; color: #fff; }
+    .btn.ghost { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+    .btn[disabled] { background: #f0f2f5; color: #98a0a8; }
+    .error, .note, .ok {
+      font-size: 13px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      margin: 10px 0 0;
+    }
+    .error { background: #fdecea; color: #8a1f1f; }
+    .note { background: #fff6e5; color: #6a4a00; }
+    .ok { background: #e8f6ee; color: #145c38; }
+    .photos h3 {
+      font-size: 13px;
+      margin: 16px 0 4px;
+    }
+    .count { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+    .ph {
+      aspect-ratio: 1;
+      background: var(--photo);
+      border-radius: 8px;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      font-size: 10px;
+      color: #334155;
+      font-weight: 650;
+    }
+    .ph::before {
+      content: "";
+      position: absolute;
+      inset: 18% 22% 38% 22%;
+      border: 2px solid #7b8aa0;
+      border-radius: 3px;
+    }
+    .ph .x {
+      position: absolute;
+      top: 4px; right: 4px;
+      background: #fff;
+      border-radius: 99px;
+      width: 18px; height: 18px;
+      font-size: 12px;
+      line-height: 18px;
+      text-align: center;
+      color: #333;
+    }
+    .add {
+      aspect-ratio: 1;
+      border: 1.5px dashed #9aa7b5;
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      color: var(--muted);
+      text-align: center;
+      padding: 6px;
+      background: #fafbfc;
+    }
+    .add.disabled { opacity: .45; }
+    .caption {
+      font-size: 10px;
+      color: var(--muted);
+      margin-top: 2px;
+      border: 1px dashed #c5ced8;
+      border-radius: 4px;
+      padding: 3px 5px;
+      background: #fff;
+    }
+    .thumbs { display: flex; gap: 6px; margin: 8px 0; }
+    .thumbs .ph { width: 52px; height: 52px; aspect-ratio: auto; flex: none; }
+    .pdf {
+      background: #fff;
+      border: 1px solid var(--line);
+      min-height: 500px;
+      padding: 18px;
+    }
+    .pdf h2 { font-size: 16px; color: var(--navy); margin: 0 0 10px; }
+    .pdf-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .pdf-grid .ph { aspect-ratio: 4/3; }
+    .legend {
+      max-width: 820px;
+      margin: 0 auto 24px;
+      padding: 0 16px 32px;
+      font-size: 14px;
+      color: #333;
+      line-height: 1.45;
+    }
+    .screen { display: none; }
+    .screen.on { display: block; }
+    .logo { font-size: 11px; letter-spacing: .04em; color: #c0392b; font-weight: 800; }
+  </style>
+</head>
+<body>
+  <div class="banner">
+    <div><strong>Wireframe only</strong> — not the live app. Nothing here saves data.</div>
+    <div>New logs: 2–10 photos required · Old logs: photos optional</div>
+  </div>
+
+  <div class="tabs" role="tablist">
+    <button type="button" data-screen="s1" aria-selected="true">1. New entry — 0 photos</button>
+    <button type="button" data-screen="s2" aria-selected="false">2. New entry — 1 photo</button>
+    <button type="button" data-screen="s3" aria-selected="false">3. New entry — 3 photos</button>
+    <button type="button" data-screen="s4" aria-selected="false">4. New entry — 10 / max</button>
+    <button type="button" data-screen="s5" aria-selected="false">5. Journal card</button>
+    <button type="button" data-screen="s6" aria-selected="false">6. Edit old entry</button>
+    <button type="button" data-screen="s7" aria-selected="false">7. PDF extra pages</button>
+  </div>
+
+  <div class="stage">
+
+    <!-- 1 -->
+    <div class="screen on" id="s1">
+      <div class="phone">
+        <div class="appbar"><span class="dot"></span> inspecworkjournal.streamlit.app</div>
+        <div class="layout">
+          <aside class="side">
+            <div class="logo">IN-SPEC</div>
+            <div class="nav on">New entry</div>
+            <div class="nav">Journal</div>
+            <div class="nav">Excel export</div>
+            <div class="nav">Crew &amp; projects</div>
+            <div style="margin-top:16px;font-size:11px;">Today (Vancouver)<br>Thu, Sep 18, 2026</div>
+          </aside>
+          <div class="main">
+            <h1>In-Spec Team Work Journal Entry</h1>
+            <div class="cap">Existing form unchanged. Photos sit at the bottom, before Save.</div>
+            <div class="row">
+              <div><label class="field">Date <span class="req">*</span></label><div class="box">18/09/2026</div></div>
+              <div><label class="field">Job site <span class="req">*</span></label><div class="box">Courtenay — Smith deck</div></div>
+            </div>
+            <label class="field">Work performed <span class="req">*</span></label>
+            <textarea disabled>Formed north footings; rebar inspection passed.</textarea>
+            <div class="photos">
+              <h3>Proof-of-work photos <span class="req">*</span></h3>
+              <div class="count">0 of 10 · at least 2 required</div>
+              <div class="grid">
+                <div class="add">+ Add from<br>camera roll</div>
+              </div>
+            </div>
+            <button class="btn primary" type="button">Save entry</button>
+            <div class="error">Add at least 2 photos from your camera roll before saving. (0 of 10)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2 -->
+    <div class="screen" id="s2">
+      <div class="phone">
+        <div class="appbar"><span class="dot"></span> inspecworkjournal.streamlit.app</div>
+        <div class="layout">
+          <aside class="side">
+            <div class="logo">IN-SPEC</div>
+            <div class="nav on">New entry</div>
+            <div class="nav">Journal</div>
+            <div class="nav">Excel export</div>
+            <div class="nav">Crew &amp; projects</div>
+          </aside>
+          <div class="main">
+            <h1>In-Spec Team Work Journal Entry</h1>
+            <div class="cap">One photo is not enough. Form values stay; they do not get wiped.</div>
+            <label class="field">Job site <span class="req">*</span></label>
+            <div class="box">Courtenay — Smith deck</div>
+            <div class="photos">
+              <h3>Proof-of-work photos <span class="req">*</span></h3>
+              <div class="count">1 of 10 · need 1 more</div>
+              <div class="grid">
+                <div>
+                  <div class="ph">IMG_2141<span class="x">×</span></div>
+                  <div class="caption">Caption (optional)</div>
+                </div>
+                <div class="add">+ Add from<br>camera roll</div>
+              </div>
+            </div>
+            <button class="btn primary" type="button">Save entry</button>
+            <div class="error">Add at least 2 photos from your camera roll before saving. (1 of 10)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3 -->
+    <div class="screen" id="s3">
+      <div class="phone">
+        <div class="appbar"><span class="dot"></span> inspecworkjournal.streamlit.app</div>
+        <div class="layout">
+          <aside class="side">
+            <div class="logo">IN-SPEC</div>
+            <div class="nav on">New entry</div>
+            <div class="nav">Journal</div>
+            <div class="nav">Excel export</div>
+            <div class="nav">Crew &amp; projects</div>
+          </aside>
+          <div class="main">
+            <h1>In-Spec Team Work Journal Entry</h1>
+            <div class="cap">Minimum met. Save works. They can still add up to 10.</div>
+            <label class="field">Job site <span class="req">*</span></label>
+            <div class="box">Courtenay — Smith deck</div>
+            <div class="photos">
+              <h3>Proof-of-work photos <span class="req">*</span></h3>
+              <div class="count">3 of 10</div>
+              <div class="grid">
+                <div>
+                  <div class="ph">footing<span class="x">×</span></div>
+                  <div class="caption">north wall formed</div>
+                </div>
+                <div>
+                  <div class="ph">rebar<span class="x">×</span></div>
+                  <div class="caption">inspection passed</div>
+                </div>
+                <div>
+                  <div class="ph">site<span class="x">×</span></div>
+                  <div class="caption">Caption (optional)</div>
+                </div>
+                <div class="add">+ Add from<br>camera roll</div>
+              </div>
+            </div>
+            <button class="btn primary" type="button">Save entry</button>
+            <div class="ok">Ready to save. Photos shrink automatically (HEIC → JPEG) on upload.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4 -->
+    <div class="screen" id="s4">
+      <div class="phone">
+        <div class="appbar"><span class="dot"></span> inspecworkjournal.streamlit.app</div>
+        <div class="layout">
+          <aside class="side">
+            <div class="logo">IN-SPEC</div>
+            <div class="nav on">New entry</div>
+            <div class="nav">Journal</div>
+            <div class="nav">Excel export</div>
+            <div class="nav">Crew &amp; projects</div>
+          </aside>
+          <div class="main">
+            <h1>In-Spec Team Work Journal Entry</h1>
+            <div class="cap">At 10, Add is disabled. Remove one to attach a different shot.</div>
+            <div class="photos">
+              <h3>Proof-of-work photos <span class="req">*</span></h3>
+              <div class="count">10 of 10 — maximum reached</div>
+              <div class="grid">
+                <div class="ph">1<span class="x">×</span></div>
+                <div class="ph">2<span class="x">×</span></div>
+                <div class="ph">3<span class="x">×</span></div>
+                <div class="ph">4<span class="x">×</span></div>
+                <div class="ph">5<span class="x">×</span></div>
+                <div class="ph">6<span class="x">×</span></div>
+                <div class="ph">7<span class="x">×</span></div>
+                <div class="ph">8<span class="x">×</span></div>
+                <div class="ph">9<span class="x">×</span></div>
+                <div class="ph">10<span class="x">×</span></div>
+                <div class="add disabled">Max 10</div>
+              </div>
+            </div>
+            <button class="btn primary" type="button">Save entry</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5 -->
+    <div class="screen" id="s5">
+      <div class="phone wide">
+        <div class="appbar"><span class="dot"></span> Journal</div>
+        <div class="layout">
+          <aside class="side">
+            <div class="logo">IN-SPEC</div>
+            <div class="nav">New entry</div>
+            <div class="nav on">Journal</div>
+            <div class="nav">Excel export</div>
+            <div class="nav">Crew &amp; projects</div>
+          </aside>
+          <div class="main">
+            <h1>Journal</h1>
+            <div class="cap">Thumbs on the card. Excel/payroll still only get a photo count.</div>
+            <div class="card">
+              <div style="font-weight:700;font-size:14px;">Sep 18, 2026 — Courtenay — Smith deck · 16 hr total · Sunny · 18°C · logged by Shaun Hellmich</div>
+              <div class="times">Shaun (07:00–15:30, brk 30 min, 8h) · Alex Jacobsen (07:00–15:30, brk 30 min, 8h)</div>
+              <p style="font-size:13px;margin:8px 0;">Formed north footings; rebar inspection passed.</p>
+              <div class="thumbs">
+                <div class="ph"></div><div class="ph"></div><div class="ph"></div>
+                <div style="font-size:12px;color:#5c6570;align-self:center;">3 photos</div>
+              </div>
+              <button class="btn ghost" type="button">Export PDF</button>
+            </div>
+            <div class="card">
+              <div style="font-weight:700;font-size:14px;">Aug 09, 2026 — Black Creek shop · 8 hr total · Overcast · logged by Shaun Hellmich</div>
+              <p style="font-size:13px;margin:8px 0;">Shop maintenance — old log from before photos.</p>
+              <div class="count">No photos (older entry — not required)</div>
+              <button class="btn ghost" type="button">Export PDF</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 6 -->
+    <div class="screen" id="s6">
+      <div class="phone">
+        <div class="appbar"><span class="dot"></span> Journal → Edit</div>
+        <div class="layout">
+          <aside class="side">
+            <div class="logo">IN-SPEC</div>
+            <div class="nav">New entry</div>
+            <div class="nav on">Journal</div>
+            <div class="nav">Excel export</div>
+            <div class="nav">Crew &amp; projects</div>
+          </aside>
+          <div class="main">
+            <h1>Edit entry #42</h1>
+            <div class="note">This log was saved before photos existed. Pictures are optional. You can save with zero.</div>
+            <label class="field">Job site</label>
+            <div class="box">Black Creek shop</div>
+            <label class="field">Work performed <span class="req">*</span></label>
+            <textarea disabled>Shop maintenance.</textarea>
+            <div class="photos">
+              <h3>Proof-of-work photos</h3>
+              <div class="count">0 of 10 · optional on older entries</div>
+              <div class="grid">
+                <div class="add">+ Add from<br>camera roll</div>
+              </div>
+            </div>
+            <button class="btn primary" type="button">Update entry</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 7 -->
+    <div class="screen" id="s7">
+      <div class="phone wide">
+        <div class="appbar"><span class="dot"></span> PDF export — extra pages</div>
+        <div class="main">
+          <div class="row" style="grid-template-columns:1fr 1fr;align-items:start;">
+            <div class="pdf">
+              <h2>Page 1 — same form as today</h2>
+              <div class="box" style="margin-bottom:8px;">Job: Courtenay — Smith deck</div>
+              <div class="box" style="margin-bottom:8px;">Date: Sep 18, 2026 · Weather Sunny 18°C</div>
+              <div class="box" style="min-height:90px;margin-bottom:8px;">Work performed…</div>
+              <div class="box" style="min-height:70px;">HSE / materials / issues…</div>
+              <div class="cap" style="margin-top:10px;">Photos do not squeeze onto this page.</div>
+            </div>
+            <div class="pdf">
+              <h2>Page 2+ — proof-of-work photos</h2>
+              <div class="pdf-grid">
+                <div><div class="ph">1</div><div class="caption">north wall formed</div></div>
+                <div><div class="ph">2</div><div class="caption">inspection passed</div></div>
+                <div><div class="ph">3</div><div class="caption"></div></div>
+                <div><div class="ph">4</div><div class="caption"></div></div>
+              </div>
+              <div class="cap" style="margin-top:10px;">Up to 10 photos. Extra pages as needed. Excel stays a count only.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="legend">
+    <p><strong>How to use this:</strong> tap the pills at the top. This is a look-and-feel mock of Streamlit on a phone, using the real journal labels.</p>
+    <p><strong>Locked rules shown here:</strong> new entries need 2–10 camera-roll photos; captions optional; old entries never require photos; PDF keeps the form on page 1.</p>
+  </div>
+
+  <script>
+    const buttons = document.querySelectorAll(".tabs button");
+    const screens = document.querySelectorAll(".screen");
+    buttons.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        buttons.forEach((b) => b.setAttribute("aria-selected", "false"));
+        btn.setAttribute("aria-selected", "true");
+        screens.forEach((s) => s.classList.remove("on"));
+        document.getElementById(btn.dataset.screen).classList.add("on");
+      });
+    });
+  </script>
+</body>
+</html>

@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS entries (
     issues_delays TEXT NOT NULL DEFAULT '',
     safety_notes TEXT NOT NULL DEFAULT '',
     action_follow_up TEXT NOT NULL DEFAULT '',
+    photos_required INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (worker_id) REFERENCES workers(id),
@@ -55,10 +56,25 @@ CREATE TABLE IF NOT EXISTS entries (
     FOREIGN KEY (logged_by_worker_id) REFERENCES workers(id)
 );
 
+CREATE TABLE IF NOT EXISTS entry_photos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entry_group_id TEXT NOT NULL,
+    storage_path TEXT NOT NULL,
+    original_name TEXT NOT NULL DEFAULT '',
+    caption TEXT NOT NULL DEFAULT '',
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_entries_date ON entries(entry_date);
 CREATE INDEX IF NOT EXISTS idx_entries_worker ON entries(worker_id);
 CREATE INDEX IF NOT EXISTS idx_entries_project ON entries(project_id);
+CREATE INDEX IF NOT EXISTS idx_entries_group ON entries(entry_group_id);
+CREATE INDEX IF NOT EXISTS idx_entry_photos_group ON entry_photos(entry_group_id);
 """
+
+PHOTO_BUCKET = "journal-photos"
+LOCAL_PHOTO_ROOT = Path(__file__).parent / "data" / "photos"
 
 
 def _now() -> str:
@@ -237,6 +253,9 @@ def _flatten_entry(row: dict[str, Any]) -> dict[str, Any]:
             pass
     if out.get("active") is not None:
         out["active"] = 1 if out["active"] in (True, 1, "1") else 0
+    out["photos_required"] = bool(
+        out.get("photos_required") in (True, 1, "1", "t", "true")
+    )
     return out
 
 
@@ -305,6 +324,26 @@ def init_db() -> None:
             conn.execute(
                 "ALTER TABLE entries ADD COLUMN break_minutes INTEGER NOT NULL DEFAULT 0"
             )
+        if "photos_required" not in cols:
+            conn.execute(
+                "ALTER TABLE entries ADD COLUMN photos_required INTEGER NOT NULL DEFAULT 0"
+            )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS entry_photos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                entry_group_id TEXT NOT NULL,
+                storage_path TEXT NOT NULL,
+                original_name TEXT NOT NULL DEFAULT '',
+                caption TEXT NOT NULL DEFAULT '',
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_entry_photos_group ON entry_photos(entry_group_id)"
+        )
 
 
 def _table_is_empty(table: str) -> bool:
@@ -564,6 +603,7 @@ def add_entry(
     action_follow_up: str = "",
     logged_by_worker_id: Optional[int] = None,
     entry_group_id: Optional[str] = None,
+    photos_required: bool = False,
 ) -> int:
     entry_date_s = _as_date_str(entry_date)
     temp_val: Optional[float]
@@ -592,6 +632,7 @@ def add_entry(
         payload["logged_by_worker_id"] = int(logged_by_worker_id)
     if entry_group_id:
         payload["entry_group_id"] = str(entry_group_id)
+    payload["photos_required"] = bool(photos_required)
 
     if using_supabase():
         now = datetime.utcnow().isoformat() + "Z"
@@ -610,8 +651,8 @@ def add_entry(
                 entry_date, worker_id, project_id, logged_by_worker_id, entry_group_id,
                 weather, temperature_c, start_time, finish_time, break_minutes, hours_worked,
                 work_done, crew_notes, materials_notes, issues_delays, safety_notes,
-                action_follow_up, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                action_follow_up, photos_required, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 entry_date_s,
@@ -631,6 +672,7 @@ def add_entry(
                 payload["issues_delays"],
                 payload["safety_notes"],
                 payload["action_follow_up"],
+                1 if photos_required else 0,
                 now,
                 now,
             ),
@@ -651,11 +693,14 @@ def add_entries_for_crew(
     issues_delays: str = "",
     safety_notes: str = "",
     action_follow_up: str = "",
-) -> list[int]:
+    photos_required: bool = True,
+) -> tuple[list[int], str]:
     """Create one journal row per worker with hours > 0 (same entry_group_id).
 
     hours_by_worker_id values may be a float (legacy) or a dict with
     start_time, finish_time, break_minutes, hours_worked.
+
+    Returns (entry_ids, entry_group_id).
     """
     import uuid
 
@@ -702,9 +747,10 @@ def add_entries_for_crew(
                 action_follow_up=action_follow_up,
                 logged_by_worker_id=logged_by_worker_id,
                 entry_group_id=group_id,
+                photos_required=photos_required,
             )
         )
-    return ids
+    return ids, group_id
 
 
 def update_entry(
@@ -961,11 +1007,14 @@ def group_journal_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]
                 "issues_delays": e.get("issues_delays") or "",
                 "safety_notes": e.get("safety_notes") or "",
                 "action_follow_up": e.get("action_follow_up") or "",
+                "photos_required": bool(e.get("photos_required")),
                 "created_at": e.get("created_at") or "",
                 "people": [],
                 "total_hours": 0.0,
             }
         g = buckets[gid]
+        if e.get("photos_required"):
+            g["photos_required"] = True
         try:
             hrs = float(e.get("hours_worked") or 0)
         except (TypeError, ValueError):
@@ -1019,7 +1068,19 @@ def list_journal_groups(
     return groups
 
 
+def photo_group_id(entry_or_group: dict[str, Any]) -> str:
+    """Stable id used to attach photos to a journal card."""
+    gid = (entry_or_group.get("group_id") or entry_or_group.get("entry_group_id") or "").strip()
+    if gid:
+        return gid
+    eid = entry_or_group.get("id")
+    return f"solo-{eid}" if eid is not None else ""
+
+
 def delete_entry_group(group: dict[str, Any]) -> None:
+    gid = photo_group_id(group)
+    if gid:
+        delete_photos_for_group(gid)
     for eid in group.get("ids") or []:
         delete_entry(int(eid))
 
@@ -1040,3 +1101,244 @@ def journal_group_stats(groups: list[dict[str, Any]]) -> dict[str, Any]:
         "worker_count": len(workers),
         "project_count": len(projects),
     }
+
+
+# --- Photos ---
+
+
+def _ensure_photo_bucket() -> None:
+    if not using_supabase():
+        LOCAL_PHOTO_ROOT.mkdir(parents=True, exist_ok=True)
+        return
+    client = _sb()
+    try:
+        client.storage.get_bucket(PHOTO_BUCKET)
+        return
+    except Exception:
+        pass
+    try:
+        client.storage.create_bucket(
+            PHOTO_BUCKET,
+            options={
+                "public": False,
+                "file_size_limit": "10485760",
+                "allowed_mime_types": ["image/jpeg"],
+            },
+        )
+    except Exception:
+        try:
+            client.storage.get_bucket(PHOTO_BUCKET)
+        except Exception as exc:
+            raise RuntimeError(
+                "Could not open the journal-photos storage bucket. "
+                "Run supabase_migration_photos.sql in the Supabase SQL Editor."
+            ) from exc
+
+
+def list_photos(entry_group_id: str) -> list[dict[str, Any]]:
+    gid = (entry_group_id or "").strip()
+    if not gid:
+        return []
+    if using_supabase():
+        resp = (
+            _sb()
+            .table("entry_photos")
+            .select("*")
+            .eq("entry_group_id", gid)
+            .order("sort_order")
+            .order("id")
+            .execute()
+        )
+        return list(resp.data or [])
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM entry_photos
+            WHERE entry_group_id = ?
+            ORDER BY sort_order, id
+            """,
+            (gid,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def list_photos_for_groups(group_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+    ids = [str(g).strip() for g in group_ids if g]
+    out: dict[str, list[dict[str, Any]]] = {gid: [] for gid in ids}
+    if not ids:
+        return out
+    if using_supabase():
+        resp = (
+            _sb()
+            .table("entry_photos")
+            .select("*")
+            .in_("entry_group_id", ids)
+            .order("sort_order")
+            .order("id")
+            .execute()
+        )
+        for row in resp.data or []:
+            out.setdefault(row["entry_group_id"], []).append(row)
+        return out
+    placeholders = ",".join("?" * len(ids))
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT * FROM entry_photos
+            WHERE entry_group_id IN ({placeholders})
+            ORDER BY sort_order, id
+            """,
+            ids,
+        ).fetchall()
+        for r in rows:
+            d = dict(r)
+            out.setdefault(d["entry_group_id"], []).append(d)
+    return out
+
+
+def read_photo_bytes(photo: dict[str, Any]) -> bytes:
+    path = photo.get("storage_path") or ""
+    if not path:
+        return b""
+    if using_supabase():
+        data = _sb().storage.from_(PHOTO_BUCKET).download(path)
+        return bytes(data or b"")
+    full = LOCAL_PHOTO_ROOT / path
+    if not full.is_file():
+        return b""
+    return full.read_bytes()
+
+
+def add_photos(
+    entry_group_id: str,
+    items: list[dict[str, Any]],
+) -> list[int]:
+    """Save compressed JPEG bytes. Each item: data, caption, original_name."""
+    import uuid
+
+    gid = (entry_group_id or "").strip()
+    if not gid:
+        raise ValueError("Missing journal id for photos.")
+    if not items:
+        return []
+    _ensure_photo_bucket()
+    existing = list_photos(gid)
+    next_order = len(existing)
+    ids: list[int] = []
+
+    for item in items:
+        data = item.get("data") or b""
+        if not data:
+            continue
+        filename = f"{uuid.uuid4().hex}.jpg"
+        storage_path = f"{gid}/{filename}"
+        caption = str(item.get("caption") or "").strip()
+        original = str(item.get("original_name") or "")[:200]
+        if using_supabase():
+            _sb().storage.from_(PHOTO_BUCKET).upload(
+                storage_path,
+                data,
+                {"content-type": "image/jpeg", "upsert": "false"},
+            )
+            resp = (
+                _sb()
+                .table("entry_photos")
+                .insert(
+                    {
+                        "entry_group_id": gid,
+                        "storage_path": storage_path,
+                        "original_name": original,
+                        "caption": caption,
+                        "sort_order": next_order,
+                    }
+                )
+                .execute()
+            )
+            if not resp.data:
+                raise RuntimeError("Saved the photo file but could not record it.")
+            ids.append(int(resp.data[0]["id"]))
+        else:
+            dest = LOCAL_PHOTO_ROOT / storage_path
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(data)
+            with get_conn() as conn:
+                cur = conn.execute(
+                    """
+                    INSERT INTO entry_photos (
+                        entry_group_id, storage_path, original_name,
+                        caption, sort_order, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (gid, storage_path, original, caption, next_order, _now()),
+                )
+                ids.append(int(cur.lastrowid))
+        next_order += 1
+    return ids
+
+
+def update_photo_caption(photo_id: int, caption: str) -> None:
+    caption = (caption or "").strip()
+    if using_supabase():
+        _sb().table("entry_photos").update({"caption": caption}).eq(
+            "id", photo_id
+        ).execute()
+        return
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE entry_photos SET caption = ? WHERE id = ?",
+            (caption, photo_id),
+        )
+
+
+def delete_photo(photo_id: int) -> None:
+    photo = None
+    if using_supabase():
+        resp = (
+            _sb()
+            .table("entry_photos")
+            .select("*")
+            .eq("id", photo_id)
+            .limit(1)
+            .execute()
+        )
+        if resp.data:
+            photo = resp.data[0]
+    else:
+        with get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM entry_photos WHERE id = ?", (photo_id,)
+            ).fetchone()
+            photo = dict(row) if row else None
+    if not photo:
+        return
+    _delete_photo_file(photo.get("storage_path") or "")
+    if using_supabase():
+        _sb().table("entry_photos").delete().eq("id", photo_id).execute()
+        return
+    with get_conn() as conn:
+        conn.execute("DELETE FROM entry_photos WHERE id = ?", (photo_id,))
+
+
+def delete_photos_for_group(entry_group_id: str) -> None:
+    for photo in list_photos(entry_group_id):
+        try:
+            delete_photo(int(photo["id"]))
+        except Exception:
+            continue
+
+
+def _delete_photo_file(storage_path: str) -> None:
+    if not storage_path:
+        return
+    if using_supabase():
+        try:
+            _sb().storage.from_(PHOTO_BUCKET).remove([storage_path])
+        except Exception:
+            pass
+        return
+    full = LOCAL_PHOTO_ROOT / storage_path
+    try:
+        if full.is_file():
+            full.unlink()
+    except OSError:
+        pass

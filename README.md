@@ -4,10 +4,11 @@ A simple daily log app for a small construction crew. Workers record what they d
 
 ## Features
 
-- **New entry** — date, worker, project/job site, weather, hours, work performed, crew notes, materials, issues/delays, safety notes
-- **Journal** — browse, filter (date range / worker / project), edit, delete
+- **New entry** — date, worker, project/job site, weather, hours, work performed, crew notes, materials, issues/delays, safety notes, plus **2–10 proof-of-work photos** from the phone camera roll
+- **Journal** — browse, filter (date range / worker / project), edit, delete; photo thumbs on each card
 - **Crew & projects** — add workers and job sites; deactivate old ones without losing history
-- **Excel export** — one `.xlsx` with summary sheets by worker and project
+- **Excel export** — one `.xlsx` with summary sheets by worker and project (photo **count** only, not the images)
+- **PDF export** — form on page 1, photos on later pages
 - **Login** — email/password via Streamlit Secrets
 - **Permanent database** — **Supabase** (Postgres) when configured; local SQLite only for offline/dev
 
@@ -58,7 +59,13 @@ key = "YOUR_SERVICE_ROLE_SECRET_KEY"
 
 Save. The app should redeploy and the sidebar should say **Data: Supabase (cloud, permanent)**.
 
-### 5. First use after switch
+### 5. Existing projects — photos migration
+
+If the app was already live before photos, run **`supabase_migration_photos.sql`** (or `supabase_migration_all_updates.sql`) once in the SQL Editor, then redeploy. Old journals stay valid with zero photos. New journals require 2–10.
+
+Photos are stored in a private Supabase Storage bucket named `journal-photos`.
+
+### 6. First use after switch
 
 - Old entries that lived only on Streamlit’s temporary disk are **not** auto-migrated (they were already at risk of disappearing).
 - Re-add **Crew & projects** if the new database is empty, then log new entries.

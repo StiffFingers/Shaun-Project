@@ -28,6 +28,7 @@ COLUMNS = [
     ("materials_notes", "Equipment/Materials"),
     ("issues_delays", "Issues / Delays"),
     ("action_follow_up", "Action / Follow up Items"),
+    ("photo_count", "Photos"),
     ("created_at", "Logged At"),
 ]
 
@@ -102,6 +103,11 @@ def build_excel(
                     value = float(value or 0)
                 except (TypeError, ValueError):
                     value = 0.0
+            elif key == "photo_count":
+                try:
+                    value = int(value or 0)
+                except (TypeError, ValueError):
+                    value = 0
             cell = ws.cell(row=row_idx, column=col_idx, value=value)
             cell.alignment = wrap
             cell.border = thin

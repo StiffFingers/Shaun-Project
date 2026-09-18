@@ -73,14 +73,17 @@ Your name and email appear in the sidebar when you are signed in.
 | **Weather** | Yes | Pick from the list |
 | **Hours worked** | Yes | Hours for that day (e.g. 8, 7.5) |
 | **Work performed** | **Yes** | Main description of what was done |
-| **Crew notes** | No | Who was on site, subs, headcount |
-| **Materials** | No | Deliveries, materials used, shortages |
+| **Visitor / Subcontractors** | No | Visitors, subs, extra headcount |
+| **Equipment/Materials** | No | Deliveries, materials used, shortages |
 | **Issues / delays** | No | Weather delays, missing materials, access problems |
-| **Safety notes** | No | Incidents, near misses, toolbox talks, PPE |
+| **Health, Safety, Environment** | **Yes** | Incidents, near misses, toolbox talks, PPE |
+| **Proof-of-work photos** | **Yes (new logs)** | **2–10** pictures from your camera roll. Captions optional. Older logs do not require photos. |
 
 3. Tap or click **Save entry**.  
 4. You should see a success message (and a short thumbs-up celebration).  
 5. The form clears so you can add another entry if needed.
+
+**Photos:** pick pictures you already took on your phone. You cannot save a **new** log with fewer than 2 photos, or more than 10. iPhone photos are compressed automatically. Older journals (from before this feature) can still be edited with zero photos.
 
 ### Tips for good logs
 
@@ -99,7 +102,7 @@ If **Worker** or **Project** lists are empty, an admin must add them under **Cre
    - **From / To** dates  
    - **Worker**  
    - **Project**  
-3. Browse the list. Each card shows date, person, site, hours, weather, and notes.  
+3. Browse the list. Each card shows date, person, site, hours, weather, notes, and photo thumbs.  
 4. To change an entry: choose **Edit** on that card, update fields, then **Update entry**.  
 5. To remove an entry: choose **Delete**, then confirm.
 
@@ -122,7 +125,7 @@ Use this when you need a file for the office, a client, or payroll review.
 | Sheet | Contents |
 |-------|----------|
 | **Export Info** | When it was created, filters used, totals |
-| **All Entries** | Every matching log (one row per entry) |
+| **All Entries** | Every matching log (one row per entry, including a **Photos** count) |
 | **By Worker** | Entry count and total hours per person |
 | **By Project** | Entry count and total hours per job site |
 

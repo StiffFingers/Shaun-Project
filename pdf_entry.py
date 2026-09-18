@@ -17,6 +17,7 @@ from reportlab.platypus import (
     HRFlowable,
     Image,
     KeepInFrame,
+    PageBreak,
     Paragraph,
     SimpleDocTemplate,
     Spacer,
@@ -446,6 +447,101 @@ def _compose_entry_story(
     return story
 
 
+def _load_photo_bytes(photo: dict[str, Any]) -> bytes:
+    data = photo.get("data") or photo.get("bytes") or b""
+    if data:
+        return data
+    try:
+        import db as journal_db
+
+        return journal_db.read_photo_bytes(photo)
+    except Exception:
+        return b""
+
+
+def _compose_photo_story(entry: dict[str, Any], styles: dict) -> list:
+    photos = list(entry.get("photos") or [])
+    if not photos:
+        return []
+    story: list = [PageBreak()]
+    story.append(Paragraph("Proof-of-work photos", styles["title"]))
+    story.append(
+        Paragraph(
+            f"{len(photos)} photo" + ("s" if len(photos) != 1 else ""),
+            styles["small"],
+        )
+    )
+    story.append(Spacer(1, 8))
+
+    cell_w = HALF_W
+    max_h = 3.1 * inch
+    row: list = []
+    for photo in photos[:10]:
+        data = _load_photo_bytes(photo)
+        cell: list = []
+        if data:
+            try:
+                from PIL import Image as PILImage
+
+                with PILImage.open(BytesIO(data)) as im:
+                    iw, ih = im.size
+                if iw < 1 or ih < 1:
+                    raise ValueError("bad size")
+                scale = min(cell_w / float(iw), max_h / float(ih))
+                img = Image(BytesIO(data), width=iw * scale, height=ih * scale)
+                img.hAlign = "LEFT"
+                cell.append(img)
+            except Exception:
+                cell.append(Paragraph("(photo could not be drawn)", styles["small"]))
+        else:
+            cell.append(Paragraph("(photo missing)", styles["small"]))
+        cap = photo.get("caption") or ""
+        if cap:
+            cell.append(Paragraph(_esc(cap), styles["small"]))
+        box = Table([[c] for c in cell], colWidths=[cell_w])
+        box.setStyle(
+            TableStyle(
+                [
+                    ("LEFTPADDING", (0, 0), (-1, -1), 2),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+                    ("TOPPADDING", (0, 0), (-1, -1), 2),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ]
+            )
+        )
+        row.append(box)
+        if len(row) == 2:
+            grid = Table([row], colWidths=[HALF_W, HALF_W])
+            grid.setStyle(
+                TableStyle(
+                    [
+                        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ]
+                )
+            )
+            story.append(grid)
+            story.append(Spacer(1, 8))
+            row = []
+    if row:
+        while len(row) < 2:
+            row.append("")
+        grid = Table([row], colWidths=[HALF_W, HALF_W])
+        grid.setStyle(
+            TableStyle(
+                [
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ]
+            )
+        )
+        story.append(grid)
+    return story
+
+
 def build_entry_pdf(entry: dict[str, Any]) -> bytes:
     """Return PDF bytes for one journal (may include multiple people/hours).
 
@@ -485,10 +581,12 @@ def build_entry_pdf(entry: dict[str, Any]) -> bytes:
     # How much we'd need to scale vertically to fit one page
     needed_scale = (frame_h / content_h) if content_h > 0 else 1.0
 
+    photo_story = _compose_photo_story(entry, styles)
+
     if content_h <= frame_h * 1.02:
-        # Fits at full size → one page
+        # Fits at full size → one page (photos still start on the next page)
         story = _compose_entry_story(entry, styles, multipage=False)
-        doc.build(story)
+        doc.build(story + photo_story)
     elif needed_scale >= MIN_PDF_SCALE:
         # Mild overflow → shrink (not below 75%) onto one page
         story = _compose_entry_story(entry, styles, multipage=False)
@@ -501,11 +599,11 @@ def build_entry_pdf(entry: dict[str, Any]) -> bytes:
             vAlign="TOP",
             fakeWidth=False,
         )
-        doc.build([fitted])
+        doc.build([fitted] + photo_story)
     else:
         # Would need to shrink below 75% → multi-page at full readable size
         story = _compose_entry_story(entry, styles, multipage=True)
-        doc.build(story)
+        doc.build(story + photo_story)
 
     return buf.getvalue()
 
